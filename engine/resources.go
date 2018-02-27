@@ -26,7 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cgrates/cgrates/cache"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/guardian"
 	"github.com/cgrates/cgrates/utils"
@@ -355,7 +354,7 @@ func (rS *ResourceService) storeResources() {
 		if rID == "" {
 			break // no more keys, backup completed
 		}
-		if rIf, ok := cache.Get(utils.ResourcesPrefix + rID); !ok || rIf == nil {
+		if rIf, ok := Cache.Get(utils.CacheResources, rID); !ok || rIf == nil {
 			utils.Logger.Warning(fmt.Sprintf("<ResourceS> failed retrieving from cache resource with ID: %s", rID))
 		} else if err := rS.StoreResource(rIf.(*Resource)); err != nil {
 			failedRIDs = append(failedRIDs, rID) // record failure so we can schedule it for next backup
@@ -397,7 +396,7 @@ func (rS *ResourceService) cachedResourcesForEvent(evUUID string) (rs Resources)
 	rIDs, has := rS.lcEventResources[evUUID]
 	rS.lcERMux.RUnlock()
 	if !has {
-		if rIDsIf, has := cache.Get(utils.EventResourcesPrefix + evUUID); !has {
+		if rIDsIf, has := Cache.Get(utils.CacheEventResources, evUUID); !has {
 			return nil
 		} else if rIDsIf != nil {
 			rIDs = rIDsIf.([]*utils.TenantID)
@@ -421,7 +420,7 @@ func (rS *ResourceService) cachedResourcesForEvent(evUUID string) (rs Resources)
 					evUUID, err.Error()))
 			// on errors, cleanup cache so we recache
 			if shortCached {
-				cache.RemKey(utils.EventResourcesPrefix+evUUID, true, "")
+				Cache.Remove(utils.CacheEventResources, evUUID, true, "")
 			} else {
 				rS.lcERMux.Lock()
 				delete(rS.lcEventResources, evUUID)
@@ -439,7 +438,7 @@ func (rS *ResourceService) cachedResourcesForEvent(evUUID string) (rs Resources)
 func (rS *ResourceService) matchingResourcesForEvent(ev *utils.CGREvent, usageTTL *time.Duration) (rs Resources, err error) {
 	matchingResources := make(map[string]*Resource)
 	rIDs, err := matchingItemIDsForEvent(ev.Event, rS.stringIndexedFields, rS.prefixIndexedFields,
-		rS.dm, utils.ResourceFilterIndexes+ev.Tenant)
+		rS.dm, utils.CacheResourceFilterIndexes, ev.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +535,7 @@ func (rS *ResourceService) V1ResourcesForEvent(args utils.ArgRSv1ResourceUsage, 
 		if mtcRLs, err = rS.matchingResourcesForEvent(&args.CGREvent, args.UsageTTL); err != nil {
 			return err
 		}
-		cache.Set(utils.EventResourcesPrefix+args.TenantID(), mtcRLs.tenantIDs(), true, "")
+		Cache.Set(utils.CacheEventResources, args.TenantID(), mtcRLs.tenantIDs(), nil, true, "")
 	}
 	if len(mtcRLs) == 0 {
 		return utils.ErrNotFound
@@ -559,7 +558,7 @@ func (rS *ResourceService) V1AuthorizeResources(args utils.ArgRSv1ResourceUsage,
 		if mtcRLs, err = rS.matchingResourcesForEvent(&args.CGREvent, args.UsageTTL); err != nil {
 			return err
 		}
-		cache.Set(utils.EventResourcesPrefix+args.TenantID(), mtcRLs.tenantIDs(), true, "")
+		Cache.Set(utils.CacheEventResources, args.TenantID(), mtcRLs.tenantIDs(), nil, true, "")
 	}
 	if alcMessage, err = mtcRLs.allocateResource(
 		&ResourceUsage{
@@ -568,7 +567,7 @@ func (rS *ResourceService) V1AuthorizeResources(args utils.ArgRSv1ResourceUsage,
 			Units:  args.Units}, true); err != nil {
 		if err == utils.ErrResourceUnavailable {
 			err = utils.ErrResourceUnauthorized
-			cache.Set(utils.EventResourcesPrefix+args.UsageID, nil, true, "")
+			Cache.Set(utils.CacheEventResources, args.UsageID, nil, nil, true, "")
 			return
 		}
 	}
@@ -602,10 +601,10 @@ func (rS *ResourceService) V1AllocateResource(args utils.ArgRSv1ResourceUsage, r
 	// index it for matching out of cache
 	var wasShortCached bool
 	if wasCached {
-		if _, has := cache.Get(utils.EventResourcesPrefix + args.UsageID); has {
+		if _, has := Cache.Get(utils.CacheEventResources, args.UsageID); has {
 			// remove from short cache to populate event cache
 			wasShortCached = true
-			cache.RemKey(utils.EventResourcesPrefix+args.UsageID, true, "")
+			Cache.Remove(utils.CacheEventResources, args.UsageID, true, "")
 		}
 	}
 	if wasShortCached || !wasCached {
