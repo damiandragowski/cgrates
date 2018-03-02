@@ -1408,8 +1408,9 @@ func (rs *RedisStorage) GetFilterIndexesDrv(cacheID, itemIDPrefix, filterType st
 }
 
 //SetFilterIndexesDrv stores Indexes into DataDB
-func (rs *RedisStorage) SetFilterIndexesDrv(originKey string, indexes map[string]utils.StringMap, commit bool, transactionID string) (err error) {
-	dbKey := originKey
+func (rs *RedisStorage) SetFilterIndexesDrv(cacheID, itemIDPrefix string,
+	indexes map[string]utils.StringMap, commit bool, transactionID string) (err error) {
+	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
 	if transactionID != "" {
 		dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
 	}
@@ -1423,7 +1424,7 @@ func (rs *RedisStorage) SetFilterIndexesDrv(originKey string, indexes map[string
 			}
 		}
 		if len(mp) != 0 {
-			if err = rs.Cmd("HMSET", originKey, mp).Err; err != nil {
+			if err = rs.Cmd("HMSET", dbKey, mp).Err; err != nil {
 				return
 			}
 		}
