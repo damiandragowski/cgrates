@@ -182,7 +182,8 @@ func (self *ApierV1) GetFilterReverseIndexes(arg AttrGetFilterReverseIndexes, re
 	}
 	if arg.ItemIDs != nil {
 		for _, itemID := range arg.ItemIDs {
-			indexes, err = self.DataManager.GetFilterReverseIndexes(engine.GetDBIndexKey(arg.ItemType, key, true), map[string]string{itemID: ""})
+			indexes, err = self.DataManager.GetFilterReverseIndexes(
+				utils.PrefixToRevIndexCache[arg.ItemType], key, map[string]string{itemID: ""})
 			if err != nil {
 				return err
 			}
@@ -193,7 +194,7 @@ func (self *ApierV1) GetFilterReverseIndexes(arg AttrGetFilterReverseIndexes, re
 			}
 		}
 	} else {
-		indexes, err = self.DataManager.GetFilterReverseIndexes(engine.GetDBIndexKey(arg.ItemType, key, true), nil)
+		indexes, err = self.DataManager.GetFilterReverseIndexes(utils.PrefixToRevIndexCache[arg.ItemType], key, nil)
 		if err != nil {
 			return err
 		}
@@ -268,8 +269,8 @@ func (self *ApierV1) computeThresholdIndexes(tenant string, thIDs *[]string) err
 		}
 	}
 	if thIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(engine.GetDBIndexKey(utils.ThresholdProfilePrefix,
-			tenant, false)); err != nil {
+		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.ThresholdProfilePrefix,
@@ -329,8 +330,8 @@ func (self *ApierV1) computeAttributeIndexes(tenant string, attrIDs *[]string) e
 		}
 	}
 	if attrIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(engine.GetDBIndexKey(utils.AttributeProfilePrefix,
-			tenant, false)); err != nil {
+		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.AttributeProfilePrefix,
@@ -388,8 +389,8 @@ func (self *ApierV1) computeResourceIndexes(tenant string, rsIDs *[]string) erro
 		}
 	}
 	if rsIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(engine.GetDBIndexKey(utils.ResourceProfilesPrefix,
-			tenant, false)); err != nil {
+		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
+			tenant); err != nil {
 			return err
 		}
 		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.ResourceProfilesPrefix,
@@ -447,8 +448,8 @@ func (self *ApierV1) computeStatIndexes(tenant string, stIDs *[]string) error {
 		}
 	}
 	if stIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(engine.GetDBIndexKey(utils.StatQueueProfilePrefix,
-			tenant, false)); err != nil {
+		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.StatQueueProfilePrefix,
@@ -507,8 +508,8 @@ func (self *ApierV1) computeSupplierIndexes(tenant string, sppIDs *[]string) err
 		}
 	}
 	if sppIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(engine.GetDBIndexKey(utils.SupplierProfilePrefix,
-			tenant, false)); err != nil {
+		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.SupplierProfilePrefix,
