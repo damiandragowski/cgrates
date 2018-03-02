@@ -253,6 +253,9 @@ func (rs Resources) allocateResource(ru *ResourceUsage, dryRun bool) (alcMessage
 	// Simulate resource usage
 	for _, r := range rs {
 		r.removeExpiredUnits()
+		if r.rPrf == nil {
+			return "", fmt.Errorf("empty configuration for resourceID: %s", r.TenantID())
+		}
 		if r.rPrf.Limit >= r.totalUsage()+ru.Units {
 			if alcMessage == "" {
 				if r.rPrf.AllocationMessage != "" {
