@@ -273,8 +273,8 @@ func (self *ApierV1) computeThresholdIndexes(tenant string, thIDs *[]string) err
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.ThresholdProfilePrefix,
-			tenant, true)); err != nil {
+		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 	} else {
@@ -334,8 +334,8 @@ func (self *ApierV1) computeAttributeIndexes(tenant string, attrIDs *[]string) e
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.AttributeProfilePrefix,
-			tenant, true)); err != nil {
+		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 	} else {
@@ -393,8 +393,8 @@ func (self *ApierV1) computeResourceIndexes(tenant string, rsIDs *[]string) erro
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.ResourceProfilesPrefix,
-			tenant, true)); err != nil {
+		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
+			tenant); err != nil {
 			return err
 		}
 	} else {
@@ -452,8 +452,8 @@ func (self *ApierV1) computeStatIndexes(tenant string, stIDs *[]string) error {
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.StatQueueProfilePrefix,
-			tenant, true)); err != nil {
+		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 	} else {
@@ -512,8 +512,8 @@ func (self *ApierV1) computeSupplierIndexes(tenant string, sppIDs *[]string) err
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(engine.GetDBIndexKey(utils.SupplierProfilePrefix,
-			tenant, true)); err != nil {
+		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
+			tenant); err != nil {
 			return err
 		}
 	} else {
