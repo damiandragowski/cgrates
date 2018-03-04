@@ -2073,21 +2073,22 @@ func (ms *MongoStorage) GetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
 }
 
 //SetFilterReverseIndexesDrv stores ReverseIndexes into DataDB
-func (ms *MongoStorage) SetFilterReverseIndexesDrv(originKey string,
+func (ms *MongoStorage) SetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
 	revIdx map[string]utils.StringMap, commit bool, transactionID string) (err error) {
 	session, col := ms.conn(colRFI)
 	defer session.Close()
-	dbKey := originKey
+	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
 	if transactionID != "" {
-		dbKey = "tmp_" + utils.ConcatenatedKey(originKey, transactionID)
+		dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
 	}
 	if commit && transactionID != "" {
-		oldKey := "tmp_" + utils.ConcatenatedKey(originKey, transactionID)
+		oldKey := "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
 		pairs := []interface{}{}
 		for key, itmMp := range revIdx {
 			param := fmt.Sprintf("value.%s", key)
-			pairs = append(pairs, bson.M{"key": originKey})
-			pairs = append(pairs, bson.M{"$set": bson.M{"key": originKey, param: itmMp.Slice()}})
+			pairs = append(pairs, bson.M{"key": dbKey})
+			pairs = append(pairs, bson.M{"$set": bson.M{"key": dbKey,
+				param: itmMp.Slice()}})
 		}
 		if len(pairs) != 0 {
 			bulk := col.Bulk()
@@ -2104,7 +2105,8 @@ func (ms *MongoStorage) SetFilterReverseIndexesDrv(originKey string,
 			if len(itmMp) == 0 {
 				pairs = append(pairs, bson.M{"$unset": bson.M{param: 1}})
 			} else {
-				pairs = append(pairs, bson.M{"$set": bson.M{"key": dbKey, param: itmMp.Slice()}})
+				pairs = append(pairs, bson.M{"$set": bson.M{"key": dbKey,
+					param: itmMp.Slice()}})
 			}
 		}
 		if len(pairs) != 0 {

@@ -131,7 +131,7 @@ func (rfi *FilterIndexer) StoreIndexes() (err error) {
 		return
 	}
 	if err = rfi.dm.SetFilterReverseIndexes(
-		GetDBIndexKey(rfi.itemType, rfi.dbKeySuffix, true),
+		utils.PrefixToRevIndexCache[rfi.itemType], rfi.dbKeySuffix,
 		rfi.reveseIndex, true, utils.NonTransactional); err != nil {
 		return
 	}
@@ -201,7 +201,7 @@ func (rfi *FilterIndexer) RemoveItemFromIndex(itemID string) (err error) {
 		return
 	}
 	if err = rfi.dm.SetFilterReverseIndexes(
-		GetDBIndexKey(rfi.itemType, rfi.dbKeySuffix, true),
+		utils.PrefixToRevIndexCache[rfi.itemType], rfi.dbKeySuffix,
 		rfi.reveseIndex, false, utils.NonTransactional); err != nil {
 		return
 	}

@@ -1498,8 +1498,9 @@ func (rs *RedisStorage) GetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
 }
 
 //SetFilterReverseIndexesDrv stores ReverseIndexes into DataDB
-func (rs *RedisStorage) SetFilterReverseIndexesDrv(originKey string, revIdx map[string]utils.StringMap, commit bool, transactionID string) (err error) {
-	dbKey := originKey
+func (rs *RedisStorage) SetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
+	revIdx map[string]utils.StringMap, commit bool, transactionID string) (err error) {
+	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
 	if transactionID != "" {
 		dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
 	}
@@ -1513,7 +1514,7 @@ func (rs *RedisStorage) SetFilterReverseIndexesDrv(originKey string, revIdx map[
 			}
 		}
 		if len(mp) != 0 {
-			if err = rs.Cmd("HMSET", originKey, mp).Err; err != nil {
+			if err = rs.Cmd("HMSET", dbKey, mp).Err; err != nil {
 				return
 			}
 		}
