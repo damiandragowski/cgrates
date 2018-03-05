@@ -212,25 +212,31 @@ func (self *ApierV1) GetFilterReverseIndexes(arg AttrGetFilterReverseIndexes, re
 	return nil
 }
 
-func (self *ApierV1) ComputeFilterIndexes(args utils.ArgsComputeFilterIndexes, reply *string) error {
+func (self *ApierV1) ComputeFilterIndexes(args utils.ArgsComputeFilterIndexes,
+	reply *string) error {
 	//ThresholdProfile Indexes
-	if err := self.computeThresholdIndexes(args.Tenant, args.ThresholdIDs); err != nil {
+	if err := self.computeThresholdIndexes(args.Tenant,
+		args.ThresholdIDs); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//StatQueueProfile Indexes
-	if err := self.computeStatIndexes(args.Tenant, args.StatIDs); err != nil {
+	if err := self.computeStatIndexes(args.Tenant,
+		args.StatIDs); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//ResourceProfile Indexes
-	if err := self.computeResourceIndexes(args.Tenant, args.ResourceIDs); err != nil {
+	if err := self.computeResourceIndexes(args.Tenant,
+		args.ResourceIDs); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//SupplierProfile Indexes
-	if err := self.computeSupplierIndexes(args.Tenant, args.SupplierIDs); err != nil {
+	if err := self.computeSupplierIndexes(args.Tenant,
+		args.SupplierIDs); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	//AttributeProfile Indexes
-	if err := self.computeAttributeIndexes(args.Tenant, args.AttributeIDs); err != nil {
+	if err := self.computeAttributeIndexes(args.Tenant,
+		args.AttributeIDs); err != nil {
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
@@ -239,14 +245,16 @@ func (self *ApierV1) ComputeFilterIndexes(args utils.ArgsComputeFilterIndexes, r
 
 func (self *ApierV1) computeThresholdIndexes(tenant string, thIDs *[]string) error {
 	var thresholdIDs []string
-	thdsIndexers := engine.NewFilterIndexer(self.DataManager, utils.ThresholdProfilePrefix, tenant)
+	thdsIndexers := engine.NewFilterIndexer(self.DataManager,
+		utils.ThresholdProfilePrefix, tenant)
 	if thIDs == nil {
 		ids, err := self.DataManager.DataDB().GetKeysForPrefix(utils.ThresholdProfilePrefix)
 		if err != nil {
 			return err
 		}
 		for _, id := range ids {
-			thresholdIDs = append(thresholdIDs, strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
+			thresholdIDs = append(thresholdIDs,
+				strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
 		}
 	} else {
 		thresholdIDs = *thIDs
@@ -269,16 +277,19 @@ func (self *ApierV1) computeThresholdIndexes(tenant string, thIDs *[]string) err
 		}
 	}
 	if thIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
+		if err := self.DataManager.RemoveFilterIndexes(
+			utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
+		if err := self.DataManager.RemoveFilterReverseIndexes(
+			utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
 	} else {
-		indexRemover := engine.NewFilterIndexer(self.DataManager, utils.ThresholdProfilePrefix, tenant)
+		indexRemover := engine.NewFilterIndexer(self.DataManager,
+			utils.ThresholdProfilePrefix, tenant)
 		for _, id := range thresholdIDs {
 			if err := indexRemover.RemoveItemFromIndex(id); err != nil &&
 				err.Error() != utils.ErrNotFound.Error() {
@@ -292,34 +303,41 @@ func (self *ApierV1) computeThresholdIndexes(tenant string, thIDs *[]string) err
 	return nil
 }
 
-func (self *ApierV1) computeAttributeIndexes(tenant string, attrIDs *[]string) error {
+func (self *ApierV1) computeAttributeIndexes(tenant string,
+	attrIDs *[]string) error {
 	var attributeIDs []string
-	attrIndexers := engine.NewFilterIndexer(self.DataManager, utils.AttributeProfilePrefix, tenant)
+	attrIndexers := engine.NewFilterIndexer(self.DataManager,
+		utils.AttributeProfilePrefix, tenant)
 	if attrIDs == nil {
 		ids, err := self.DataManager.DataDB().GetKeysForPrefix(utils.AttributeProfilePrefix)
 		if err != nil {
 			return err
 		}
 		for _, id := range ids {
-			err = attrIndexers.RemoveItemFromIndex(strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
-			if err != nil && err.Error() != utils.ErrNotFound.Error() {
+			if err = attrIndexers.RemoveItemFromIndex(strings.Split(id,
+				utils.CONCATENATED_KEY_SEP)[1]); err != nil &&
+				err.Error() != utils.ErrNotFound.Error() {
 				return err
 			}
-			attributeIDs = append(attributeIDs, strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
+			attributeIDs = append(attributeIDs,
+				strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
 		}
 	} else {
 		attributeIDs = *attrIDs
 	}
 	for _, id := range attributeIDs {
-		ap, err := self.DataManager.GetAttributeProfile(tenant, id, false, utils.NonTransactional)
+		ap, err := self.DataManager.GetAttributeProfile(tenant, id,
+			false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		for _, fltrID := range ap.FilterIDs {
-			fltr, err := self.DataManager.GetFilter(tenant, fltrID, false, utils.NonTransactional)
+			fltr, err := self.DataManager.GetFilter(tenant, fltrID,
+				false, utils.NonTransactional)
 			if err != nil {
 				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v", fltrID, ap)
+					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v",
+						fltrID, ap)
 				}
 				return err
 			} else {
@@ -330,16 +348,19 @@ func (self *ApierV1) computeAttributeIndexes(tenant string, attrIDs *[]string) e
 		}
 	}
 	if attrIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
+		if err := self.DataManager.RemoveFilterIndexes(
+			utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
+		if err := self.DataManager.RemoveFilterReverseIndexes(
+			utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
 	} else {
-		indexRemover := engine.NewFilterIndexer(self.DataManager, utils.AttributeProfilePrefix, tenant)
+		indexRemover := engine.NewFilterIndexer(self.DataManager,
+			utils.AttributeProfilePrefix, tenant)
 		for _, id := range attributeIDs {
 			if err := indexRemover.RemoveItemFromIndex(id); err != nil &&
 				err.Error() != utils.ErrNotFound.Error() {
@@ -355,32 +376,38 @@ func (self *ApierV1) computeAttributeIndexes(tenant string, attrIDs *[]string) e
 
 func (self *ApierV1) computeResourceIndexes(tenant string, rsIDs *[]string) error {
 	var resourceIDs []string
-	rpIndexers := engine.NewFilterIndexer(self.DataManager, utils.ResourceProfilesPrefix, tenant)
+	rpIndexers := engine.NewFilterIndexer(self.DataManager,
+		utils.ResourceProfilesPrefix, tenant)
 	if rsIDs == nil {
 		ids, err := self.DataManager.DataDB().GetKeysForPrefix(utils.ResourceProfilesPrefix)
 		if err != nil {
 			return err
 		}
 		for _, id := range ids {
-			err = rpIndexers.RemoveItemFromIndex(strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
+			err = rpIndexers.RemoveItemFromIndex(
+				strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
 			if err != nil && err.Error() != utils.ErrNotFound.Error() {
 				return err
 			}
-			resourceIDs = append(resourceIDs, strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
+			resourceIDs = append(resourceIDs,
+				strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
 		}
 	} else {
 		resourceIDs = *rsIDs
 	}
 	for _, id := range resourceIDs {
-		rp, err := self.DataManager.GetResourceProfile(tenant, id, false, utils.NonTransactional)
+		rp, err := self.DataManager.GetResourceProfile(tenant, id,
+			false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		for _, fltrID := range rp.FilterIDs {
-			fltr, err := self.DataManager.GetFilter(tenant, fltrID, false, utils.NonTransactional)
+			fltr, err := self.DataManager.GetFilter(tenant, fltrID,
+				false, utils.NonTransactional)
 			if err != nil {
 				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v", fltrID, rp)
+					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v",
+						fltrID, rp)
 				}
 				return err
 			} else {
@@ -389,16 +416,19 @@ func (self *ApierV1) computeResourceIndexes(tenant string, rsIDs *[]string) erro
 		}
 	}
 	if rsIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
+		if err := self.DataManager.RemoveFilterIndexes(
+			utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
+		if err := self.DataManager.RemoveFilterReverseIndexes(
+			utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix],
 			tenant); err != nil {
 			return err
 		}
 	} else {
-		indexRemover := engine.NewFilterIndexer(self.DataManager, utils.ResourceProfilesPrefix, tenant)
+		indexRemover := engine.NewFilterIndexer(self.DataManager,
+			utils.ResourceProfilesPrefix, tenant)
 		for _, id := range resourceIDs {
 			if err := indexRemover.RemoveItemFromIndex(id); err != nil &&
 				err.Error() != utils.ErrNotFound.Error() {
@@ -414,32 +444,38 @@ func (self *ApierV1) computeResourceIndexes(tenant string, rsIDs *[]string) erro
 
 func (self *ApierV1) computeStatIndexes(tenant string, stIDs *[]string) error {
 	var statIDs []string
-	sqpIndexers := engine.NewFilterIndexer(self.DataManager, utils.StatQueueProfilePrefix, tenant)
+	sqpIndexers := engine.NewFilterIndexer(self.DataManager,
+		utils.StatQueueProfilePrefix, tenant)
 	if stIDs == nil {
 		ids, err := self.DataManager.DataDB().GetKeysForPrefix(utils.StatQueueProfilePrefix)
 		if err != nil {
 			return err
 		}
 		for _, id := range ids {
-			err = sqpIndexers.RemoveItemFromIndex(strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
-			if err != nil && err.Error() != utils.ErrNotFound.Error() {
+			if err = sqpIndexers.RemoveItemFromIndex(strings.Split(id,
+				utils.CONCATENATED_KEY_SEP)[1]); err != nil &&
+				err.Error() != utils.ErrNotFound.Error() {
 				return err
 			}
-			statIDs = append(statIDs, strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
+			statIDs = append(statIDs, strings.Split(id,
+				utils.CONCATENATED_KEY_SEP)[1])
 		}
 	} else {
 		statIDs = *stIDs
 	}
 	for _, id := range statIDs {
-		sqp, err := self.DataManager.GetStatQueueProfile(tenant, id, false, utils.NonTransactional)
+		sqp, err := self.DataManager.GetStatQueueProfile(tenant, id,
+			false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		for _, fltrID := range sqp.FilterIDs {
-			fltr, err := self.DataManager.GetFilter(tenant, fltrID, false, utils.NonTransactional)
+			fltr, err := self.DataManager.GetFilter(tenant, fltrID,
+				false, utils.NonTransactional)
 			if err != nil {
 				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v", fltrID, sqp)
+					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v",
+						fltrID, sqp)
 				}
 				return err
 			} else {
@@ -448,16 +484,19 @@ func (self *ApierV1) computeStatIndexes(tenant string, stIDs *[]string) error {
 		}
 	}
 	if stIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
+		if err := self.DataManager.RemoveFilterIndexes(
+			utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
+		if err := self.DataManager.RemoveFilterReverseIndexes(
+			utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
 	} else {
-		indexRemover := engine.NewFilterIndexer(self.DataManager, utils.StatQueueProfilePrefix, tenant)
+		indexRemover := engine.NewFilterIndexer(self.DataManager,
+			utils.StatQueueProfilePrefix, tenant)
 		for _, id := range statIDs {
 			if err := indexRemover.RemoveItemFromIndex(id); err != nil &&
 				err.Error() != utils.ErrNotFound.Error() {
@@ -473,15 +512,17 @@ func (self *ApierV1) computeStatIndexes(tenant string, stIDs *[]string) error {
 
 func (self *ApierV1) computeSupplierIndexes(tenant string, sppIDs *[]string) error {
 	var supplierIDs []string
-	sppIndexers := engine.NewFilterIndexer(self.DataManager, utils.SupplierProfilePrefix, tenant)
+	sppIndexers := engine.NewFilterIndexer(self.DataManager,
+		utils.SupplierProfilePrefix, tenant)
 	if sppIDs == nil {
 		ids, err := self.DataManager.DataDB().GetKeysForPrefix(utils.SupplierProfilePrefix)
 		if err != nil {
 			return err
 		}
 		for _, id := range ids {
-			err = sppIndexers.RemoveItemFromIndex(strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
-			if err != nil && err.Error() != utils.ErrNotFound.Error() {
+			if err = sppIndexers.RemoveItemFromIndex(strings.Split(id,
+				utils.CONCATENATED_KEY_SEP)[1]); err != nil &&
+				err.Error() != utils.ErrNotFound.Error() {
 				return err
 			}
 			supplierIDs = append(supplierIDs, strings.Split(id, utils.CONCATENATED_KEY_SEP)[1])
@@ -490,15 +531,18 @@ func (self *ApierV1) computeSupplierIndexes(tenant string, sppIDs *[]string) err
 		supplierIDs = *sppIDs
 	}
 	for _, id := range supplierIDs {
-		spp, err := self.DataManager.GetSupplierProfile(tenant, id, false, utils.NonTransactional)
+		spp, err := self.DataManager.GetSupplierProfile(tenant, id,
+			false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		for _, fltrID := range spp.FilterIDs {
-			fltr, err := self.DataManager.GetFilter(tenant, fltrID, false, utils.NonTransactional)
+			fltr, err := self.DataManager.GetFilter(tenant, fltrID,
+				false, utils.NonTransactional)
 			if err != nil {
 				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v", fltrID, spp)
+					err = fmt.Errorf("broken reference to filter: %+v for stats queue: %+v",
+						fltrID, spp)
 				}
 				return err
 			} else {
@@ -508,16 +552,19 @@ func (self *ApierV1) computeSupplierIndexes(tenant string, sppIDs *[]string) err
 		}
 	}
 	if sppIDs == nil {
-		if err := self.DataManager.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
+		if err := self.DataManager.RemoveFilterIndexes(
+			utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
-		if err := self.DataManager.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
+		if err := self.DataManager.RemoveFilterReverseIndexes(
+			utils.PrefixToRevIndexCache[utils.SupplierProfilePrefix],
 			tenant); err != nil {
 			return err
 		}
 	} else {
-		indexRemover := engine.NewFilterIndexer(self.DataManager, utils.SupplierProfilePrefix, tenant)
+		indexRemover := engine.NewFilterIndexer(self.DataManager,
+			utils.SupplierProfilePrefix, tenant)
 		for _, id := range supplierIDs {
 			if err := indexRemover.RemoveItemFromIndex(id); err != nil &&
 				err.Error() != utils.ErrNotFound.Error() {

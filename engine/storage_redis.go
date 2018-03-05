@@ -1424,7 +1424,7 @@ func (rs *RedisStorage) SetFilterIndexesDrv(cacheID, itemIDPrefix string,
 			}
 		}
 		if len(mp) != 0 {
-			if err = rs.Cmd("HMSET", dbKey, mp).Err; err != nil {
+			if err = rs.Cmd("HMSET", utils.CacheInstanceToPrefix[cacheID]+itemIDPrefix, mp).Err; err != nil {
 				return
 			}
 		}
