@@ -1074,6 +1074,39 @@ func (acc *Account) AsAccountSummary() *AccountSummary {
 	return ad
 }
 
+func (acnt *Account) Publish() {
+	acntTnt := utils.NewTenantID(acnt.ID)
+	cgrEv := utils.CGREvent{
+		Tenant: acntTnt.Tenant,
+		ID:     utils.GenUUID(),
+		Event: map[string]interface{}{
+			utils.EventType:     utils.AccountUpdate,
+			utils.EventSource:   utils.AccountService,
+			utils.Account:       acntTnt.ID,
+			utils.AllowNegative: acnt.AllowNegative,
+			utils.Disabled:      acnt.Disabled}}
+	if statS != nil {
+		var reply []string
+		go func() {
+			if err := statS.Call(utils.StatSv1ProcessEvent, &StatsArgsProcessEvent{CGREvent: cgrEv}, &reply); err != nil &&
+				err.Error() != utils.ErrNotFound.Error() {
+				utils.Logger.Warning(
+					fmt.Sprintf("<AccountS> error: %s processing balance event %+v with StatS.",
+						err.Error(), cgrEv))
+			}
+		}()
+	}
+	if thresholdS != nil {
+		var tIDs []string
+		if err := thresholdS.Call(utils.ThresholdSv1ProcessEvent,
+			&ArgsProcessEvent{CGREvent: cgrEv}, &tIDs); err != nil &&
+			err.Error() != utils.ErrNotFound.Error() {
+			utils.Logger.Warning(
+				fmt.Sprintf("<AccountS> error: %s processing account event %+v with ThresholdS.", err.Error(), cgrEv))
+		}
+	}
+}
+
 func NewAccountSummaryFromJSON(jsn string) (acntSummary *AccountSummary, err error) {
 	if !utils.IsSliceMember([]string{"", "null"}, jsn) { // Unmarshal only when content
 		json.Unmarshal([]byte(jsn), &acntSummary)

@@ -67,15 +67,17 @@ const (
 	colFlt   = "filters"
 	colSpp   = "supplier_profiles"
 	colAttr  = "attribute_profiles"
+	ColCDRs  = "cdrs"
+	colCpp   = "charger_profiles"
 )
 
 var (
 	CGRIDLow           = strings.ToLower(utils.CGRID)
-	RunIDLow           = strings.ToLower(utils.MEDI_RUNID)
-	OrderIDLow         = strings.ToLower(utils.ORDERID)
+	RunIDLow           = strings.ToLower(utils.RunID)
+	OrderIDLow         = strings.ToLower(utils.OrderID)
 	OriginHostLow      = strings.ToLower(utils.OriginHost)
 	OriginIDLow        = strings.ToLower(utils.OriginID)
-	ToRLow             = strings.ToLower(utils.TOR)
+	ToRLow             = strings.ToLower(utils.ToR)
 	CDRHostLow         = strings.ToLower(utils.OriginHost)
 	CDRSourceLow       = strings.ToLower(utils.Source)
 	RequestTypeLow     = strings.ToLower(utils.RequestType)
@@ -92,12 +94,13 @@ var (
 	UpdatedAtLow       = strings.ToLower(utils.UpdatedAt)
 	UsageLow           = strings.ToLower(utils.Usage)
 	PDDLow             = strings.ToLower(utils.PDD)
-	CostDetailsLow     = strings.ToLower(utils.COST_DETAILS)
+	CostDetailsLow     = strings.ToLower(utils.CostDetails)
 	DestinationLow     = strings.ToLower(utils.Destination)
 	CostLow            = strings.ToLower(utils.COST)
 )
 
-func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes []string, cacheCfg config.CacheConfig, loadHistorySize int) (ms *MongoStorage, err error) {
+func NewMongoStorage(host, port, db, user, pass, storageType string,
+	cdrsIndexes []string, cacheCfg config.CacheCfg) (ms *MongoStorage, err error) {
 	url := host
 	if port != "" {
 		url += ":" + port
@@ -105,16 +108,18 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
 	if user != "" && pass != "" {
 		url = fmt.Sprintf("%s:%s@%s", user, pass, url)
 	}
+	var dbName string
 	if db != "" {
 		url += "/" + db
+		dbName = strings.Split(db, "?")[0] // remove extra info after ?
 	}
 	session, err := mgo.Dial(url)
 	if err != nil {
 		return nil, err
 	}
 	session.SetMode(mgo.Strong, true)
-	ms = &MongoStorage{db: db, session: session, storageType: storageType, ms: NewCodecMsgpackMarshaler(),
-		cacheCfg: cacheCfg, loadHistorySize: loadHistorySize, cdrsIndexes: cdrsIndexes}
+	ms = &MongoStorage{db: dbName, session: session, storageType: storageType, ms: NewCodecMsgpackMarshaler(),
+		cacheCfg: cacheCfg, cdrsIndexes: cdrsIndexes}
 	if cNames, err := session.DB(ms.db).CollectionNames(); err != nil {
 		return nil, err
 	} else if len(cNames) == 0 { // create indexes only if database is empty
@@ -127,14 +132,13 @@ func NewMongoStorage(host, port, db, user, pass, storageType string, cdrsIndexes
 }
 
 type MongoStorage struct {
-	session         *mgo.Session
-	db              string
-	storageType     string // datadb, stordb
-	ms              Marshaler
-	cacheCfg        config.CacheConfig
-	loadHistorySize int
-	cdrsIndexes     []string
-	cnter           *utils.Counter
+	session     *mgo.Session
+	db          string
+	storageType string // datadb, stordb
+	ms          Marshaler
+	cacheCfg    config.CacheCfg
+	cdrsIndexes []string
+	cnter       *utils.Counter
 }
 
 func (ms *MongoStorage) conn(col string) (*mgo.Session, *mgo.Collection) {
@@ -155,8 +159,10 @@ func (ms *MongoStorage) EnsureIndexes() (err error) {
 			Background: false, // Build index in background and return immediately
 			Sparse:     false, // Only index documents containing the Key fields
 		}
-		for _, col := range []string{colAct, colApl, colAAp, colAtr, colDcs, colRpl, colLcr, colDst, colRds, colAls, colUsr, colLht} {
+		for _, col := range []string{colAct, colApl, colAAp, colAtr,
+			colDcs, colRpl, colLcr, colDst, colRds, colAls, colUsr, colLht} {
 			if err = db.C(col).EnsureIndex(idx); err != nil {
+
 				return
 			}
 		}
@@ -167,7 +173,8 @@ func (ms *MongoStorage) EnsureIndexes() (err error) {
 			Background: false,
 			Sparse:     false,
 		}
-		for _, col := range []string{colRsP, colRes, colSqs, colSqp, colTps, colThs, colSpp, colAttr, colFlt} {
+		for _, col := range []string{colRsP, colRes, colSqs, colSqp,
+			colTps, colThs, colSpp, colAttr, colFlt, colCpp} {
 			if err = db.C(col).EnsureIndex(idx); err != nil {
 				return
 			}
@@ -193,8 +200,10 @@ func (ms *MongoStorage) EnsureIndexes() (err error) {
 			Background: false,
 			Sparse:     false,
 		}
-		for _, col := range []string{utils.TBLTPTimings, utils.TBLTPDestinations, utils.TBLTPDestinationRates, utils.TBLTPRatingPlans,
-			utils.TBLTPSharedGroups, utils.TBLTPCdrStats, utils.TBLTPActions, utils.TBLTPActionPlans, utils.TBLTPActionTriggers,
+		for _, col := range []string{utils.TBLTPTimings, utils.TBLTPDestinations,
+			utils.TBLTPDestinationRates, utils.TBLTPRatingPlans,
+			utils.TBLTPSharedGroups, utils.TBLTPCdrStats, utils.TBLTPActions,
+			utils.TBLTPActionPlans, utils.TBLTPActionTriggers,
 			utils.TBLTPStats, utils.TBLTPResources} {
 			if err = db.C(col).EnsureIndex(idx); err != nil {
 				return
@@ -241,12 +250,13 @@ func (ms *MongoStorage) EnsureIndexes() (err error) {
 			return
 		}
 		idx = mgo.Index{
-			Key:        []string{"tpid", "direction", "tenant", "category", "subject", "account", "loadid"},
+			Key:        []string{"tpid", "tenant", "category", "subject", "account", "loadid"},
 			Unique:     true,
 			DropDups:   false,
 			Background: false,
 			Sparse:     false,
 		}
+
 		if err = db.C(utils.TBLTPDerivedChargers).EnsureIndex(idx); err != nil {
 			return
 		}
@@ -378,7 +388,8 @@ func (ms *MongoStorage) SelectDatabase(dbName string) (err error) {
 }
 
 func (ms *MongoStorage) RebuildReverseForPrefix(prefix string) (err error) {
-	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
+	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX,
+		utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
 		return utils.ErrInvalidKey
 	}
 	colName, ok := ms.getColNameForPrefix(prefix)
@@ -438,7 +449,8 @@ func (ms *MongoStorage) RebuildReverseForPrefix(prefix string) (err error) {
 }
 
 func (ms *MongoStorage) RemoveReverseForPrefix(prefix string) (err error) {
-	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
+	if !utils.IsSliceMember([]string{utils.REVERSE_DESTINATION_PREFIX,
+		utils.REVERSE_ALIASES_PREFIX, utils.AccountActionPlansPrefix}, prefix) {
 		return utils.ErrInvalidKey
 	}
 	colName, ok := ms.getColNameForPrefix(prefix)
@@ -589,12 +601,26 @@ func (ms *MongoStorage) GetKeysForPrefix(prefix string) (result []string, err er
 			result = append(result, utils.REVERSE_ALIASES_PREFIX+keyResult.Key)
 		}
 	case utils.ResourceProfilesPrefix:
-		iter := db.C(colRsP).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colRsP).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.ResourceProfilesPrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
 	case utils.ResourcesPrefix:
-		iter := db.C(colRes).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colRes).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.ResourcesPrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
@@ -611,7 +637,14 @@ func (ms *MongoStorage) GetKeysForPrefix(prefix string) (result []string, err er
 			result = append(result, utils.StatQueuePrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
 	case utils.StatQueueProfilePrefix:
-		iter := db.C(colSqp).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colSqp).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.StatQueueProfilePrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
@@ -626,7 +659,14 @@ func (ms *MongoStorage) GetKeysForPrefix(prefix string) (result []string, err er
 			result = append(result, utils.TimingsPrefix+idResult.Id)
 		}
 	case utils.FilterPrefix:
-		iter := db.C(colFlt).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colFlt).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.FilterPrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
@@ -643,19 +683,52 @@ func (ms *MongoStorage) GetKeysForPrefix(prefix string) (result []string, err er
 			result = append(result, utils.ThresholdPrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
 	case utils.ThresholdProfilePrefix:
-		iter := db.C(colTps).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colTps).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.ThresholdProfilePrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
 	case utils.SupplierProfilePrefix:
-		iter := db.C(colSpp).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colSpp).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.SupplierProfilePrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
 	case utils.AttributeProfilePrefix:
-		iter := db.C(colAttr).Find(bson.M{"id": bson.M{"$regex": bson.RegEx{Pattern: subject}}}).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colAttr).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
 		for iter.Next(&idResult) {
 			result = append(result, utils.AttributeProfilePrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
+		}
+	case utils.ChargerProfilePrefix:
+		qry := bson.M{}
+		if tntID.Tenant != "" {
+			qry["tenant"] = tntID.Tenant
+		}
+		if tntID.ID != "" {
+			qry["id"] = bson.M{"$regex": bson.RegEx{Pattern: subject}}
+		}
+		iter := db.C(colCpp).Find(qry).Select(bson.M{"tenant": 1, "id": 1}).Iter()
+		for iter.Next(&idResult) {
+			result = append(result, utils.ChargerProfilePrefix+utils.ConcatenatedKey(idResult.Tenant, idResult.Id))
 		}
 	default:
 		err = fmt.Errorf("unsupported prefix in GetKeysForPrefix: %s", prefix)
@@ -710,6 +783,9 @@ func (ms *MongoStorage) HasDataDrv(category, subject, tenant string) (has bool, 
 		has = count > 0
 	case utils.AttributeProfilePrefix:
 		count, err = db.C(colAttr).Find(bson.M{"tenant": tenant, "id": subject}).Count()
+		has = count > 0
+	case utils.ChargerProfilePrefix:
+		count, err = db.C(colCpp).Find(bson.M{"tenant": tenant, "id": subject}).Count()
 		has = count > 0
 	default:
 		err = fmt.Errorf("unsupported category in HasData: %s", category)
@@ -1934,44 +2010,57 @@ func (ms *MongoStorage) RemoveTimingDrv(id string) (err error) {
 }
 
 // GetFilterIndexesDrv retrieves Indexes from dataDB
+//filterType is used togheter with fieldName:Val
 func (ms *MongoStorage) GetFilterIndexesDrv(cacheID, itemIDPrefix, filterType string,
 	fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error) {
 	session, col := ms.conn(colRFI)
 	defer session.Close()
-	var result struct {
+	type result struct {
 		Key   string
-		Value map[string][]string
+		Value []string
 	}
+	var results []result
 	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
-	findParam := bson.M{"key": dbKey}
 	if len(fldNameVal) != 0 {
 		for fldName, fldValue := range fldNameVal {
-			qryFltr := fmt.Sprintf("value.%s",
-				utils.ConcatenatedKey(filterType, fldName, fldValue))
-			if err = col.Find(bson.M{"key": dbKey, qryFltr: bson.M{"$exists": true}}).Select(
-				bson.M{qryFltr: true}).One(&result); err != nil {
+			if err = col.Find(bson.M{"key": utils.ConcatenatedKey(dbKey, filterType, fldName, fldValue)}).All(&results); err != nil {
 				if err == mgo.ErrNotFound {
 					return nil, utils.ErrNotFound
 				}
 			}
 		}
 	} else {
-		if err = col.Find(findParam).One(&result); err != nil {
+		for _, character := range []string{".", "*"} {
+			dbKey = strings.Replace(dbKey, character, `\`+character, strings.Count(dbKey, character))
+		}
+		//inside bson.RegEx add carrot to match the prefix (optimization)
+		findWithoutIndexes := bson.M{"key": bson.M{"$regex": bson.RegEx{"^" + dbKey, ""}}}
+		if err = col.Find(findWithoutIndexes).All(&results); err != nil {
 			if err == mgo.ErrNotFound {
 				return nil, utils.ErrNotFound
 			}
 		}
 	}
 	indexes = make(map[string]utils.StringMap)
-	for key, itmSls := range result.Value {
-		if _, hasIt := indexes[key]; !hasIt {
-			indexes[key] = make(utils.StringMap)
+	for _, res := range results {
+		if len(res.Value) == 0 {
+			continue
 		}
-		indexes[key] = utils.StringMapFromSlice(itmSls)
+		keys := strings.Split(res.Key, ":")
+		indexKey := utils.ConcatenatedKey(keys[1], keys[2], keys[3])
+		//check here if itemIDPrefix has context
+		if len(strings.Split(itemIDPrefix, ":")) == 2 {
+			indexKey = utils.ConcatenatedKey(keys[2], keys[3], keys[4])
+		}
+		if _, hasIt := indexes[indexKey]; !hasIt {
+			indexes[indexKey] = make(utils.StringMap)
+		}
+		indexes[indexKey] = utils.StringMapFromSlice(res.Value)
 	}
 	if len(indexes) == 0 {
 		return nil, utils.ErrNotFound
 	}
+
 	return indexes, nil
 }
 
@@ -1986,16 +2075,20 @@ func (ms *MongoStorage) SetFilterIndexesDrv(cacheID, itemIDPrefix string,
 		dbKey = "tmp_" + utils.ConcatenatedKey(originKey, transactionID)
 	}
 	if commit && transactionID != "" {
-		oldKey := "tmp_" + utils.ConcatenatedKey(originKey, transactionID)
-		err = col.Remove(bson.M{"key": originKey})
+		regexKey := originKey
+		for _, character := range []string{".", "*"} {
+			regexKey = strings.Replace(regexKey, character, `\`+character, strings.Count(regexKey, character))
+		}
+		//inside bson.RegEx add carrot to match the prefix (optimization)
+		_, err = col.RemoveAll(bson.M{"key": bson.M{"$regex": bson.RegEx{"^" + regexKey, ""}}})
 		if err != nil && err != mgo.ErrNotFound {
 			return
 		}
+
 		pairs := []interface{}{}
 		for key, itmMp := range indexes {
-			param := fmt.Sprintf("value.%s", key)
-			pairs = append(pairs, bson.M{"key": originKey})
-			pairs = append(pairs, bson.M{"$set": bson.M{"key": originKey, param: itmMp.Slice()}})
+			pairs = append(pairs, bson.M{"key": utils.ConcatenatedKey(originKey, key)})
+			pairs = append(pairs, bson.M{"$set": bson.M{"key": utils.ConcatenatedKey(originKey, key), "value": itmMp.Slice()}})
 		}
 		if len(pairs) != 0 {
 			bulk := col.Bulk()
@@ -2003,16 +2096,21 @@ func (ms *MongoStorage) SetFilterIndexesDrv(cacheID, itemIDPrefix string,
 			bulk.Upsert(pairs...)
 			_, err = bulk.Run()
 		}
-		return col.Remove(bson.M{"key": oldKey})
+		oldKey := "tmp_" + utils.ConcatenatedKey(originKey, transactionID)
+		for _, character := range []string{".", "*"} {
+			oldKey = strings.Replace(oldKey, character, `\`+character, strings.Count(oldKey, character))
+		}
+		//inside bson.RegEx add carrot to match the prefix (optimization)
+		_, err = col.RemoveAll(bson.M{"key": bson.M{"$regex": bson.RegEx{"^" + oldKey, ""}}})
+		return err
 	} else {
 		pairs := []interface{}{}
 		for key, itmMp := range indexes {
-			param := fmt.Sprintf("value.%s", key)
-			pairs = append(pairs, bson.M{"key": dbKey})
+			pairs = append(pairs, bson.M{"key": utils.ConcatenatedKey(dbKey, key)})
 			if len(itmMp) == 0 {
-				pairs = append(pairs, bson.M{"$unset": bson.M{param: 1}})
+				pairs = append(pairs, bson.M{"$unset": bson.M{"value": 1}})
 			} else {
-				pairs = append(pairs, bson.M{"$set": bson.M{"key": dbKey, param: itmMp.Slice()}})
+				pairs = append(pairs, bson.M{"$set": bson.M{"key": utils.ConcatenatedKey(dbKey, key), "value": itmMp.Slice()}})
 			}
 		}
 		if len(pairs) != 0 {
@@ -2028,113 +2126,13 @@ func (ms *MongoStorage) SetFilterIndexesDrv(cacheID, itemIDPrefix string,
 func (ms *MongoStorage) RemoveFilterIndexesDrv(cacheID, itemIDPrefix string) (err error) {
 	session, col := ms.conn(colRFI)
 	defer session.Close()
-	err = col.Remove(bson.M{"key": utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix})
+	regexKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
+	for _, character := range []string{".", "*"} {
+		regexKey = strings.Replace(regexKey, character, `\`+character, strings.Count(regexKey, character))
+	}
+	//inside bson.RegEx add carrot to match the prefix (optimization)
+	_, err = col.RemoveAll(bson.M{"key": bson.M{"$regex": bson.RegEx{"^" + regexKey, ""}}})
 	// redis compatibility
-	if err == mgo.ErrNotFound {
-		err = nil
-	}
-	return
-}
-
-// GetFilterReverseIndexesDrv retrieves ReverseIndexes from dataDB
-func (ms *MongoStorage) GetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
-	fldNameVal map[string]string) (revIdx map[string]utils.StringMap, err error) {
-	session, col := ms.conn(colRFI)
-	defer session.Close()
-	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
-	var result struct {
-		Key   string
-		Value map[string][]string
-	}
-	findParam := bson.M{"key": dbKey}
-	if len(fldNameVal) != 0 {
-		for fldName, _ := range fldNameVal {
-			qryFltr := fmt.Sprintf("value.%s", fldName)
-			if err = col.Find(bson.M{"key": dbKey, qryFltr: bson.M{"$exists": true}}).Select(
-				bson.M{qryFltr: true}).One(&result); err != nil {
-				if err == mgo.ErrNotFound {
-					return nil, utils.ErrNotFound
-				}
-			}
-		}
-	} else {
-		if err = col.Find(findParam).One(&result); err != nil {
-			if err == mgo.ErrNotFound || len(result.Value) == 0 {
-				return nil, utils.ErrNotFound
-			}
-		}
-	}
-	revIdx = make(map[string]utils.StringMap)
-	for key, itmSls := range result.Value {
-		if _, hasIt := revIdx[key]; !hasIt {
-			revIdx[key] = make(utils.StringMap)
-		}
-		revIdx[key] = utils.StringMapFromSlice(itmSls)
-	}
-	if len(revIdx) == 0 {
-		return nil, utils.ErrNotFound
-	}
-	return revIdx, nil
-}
-
-//SetFilterReverseIndexesDrv stores ReverseIndexes into DataDB
-func (ms *MongoStorage) SetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
-	revIdx map[string]utils.StringMap, commit bool, transactionID string) (err error) {
-	session, col := ms.conn(colRFI)
-	defer session.Close()
-	originKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
-	dbKey := originKey
-	if transactionID != "" {
-		dbKey = "tmp_" + utils.ConcatenatedKey(dbKey, transactionID)
-	}
-	if commit && transactionID != "" {
-		oldKey := "tmp_" + utils.ConcatenatedKey(originKey, transactionID)
-		err = col.Remove(bson.M{"key": originKey})
-		if err != nil && err != mgo.ErrNotFound {
-			return
-		}
-		pairs := []interface{}{}
-		for key, itmMp := range revIdx {
-			param := fmt.Sprintf("value.%s", key)
-			pairs = append(pairs, bson.M{"key": originKey})
-			pairs = append(pairs, bson.M{"$set": bson.M{"key": originKey,
-				param: itmMp.Slice()}})
-		}
-		if len(pairs) != 0 {
-			bulk := col.Bulk()
-			bulk.Unordered()
-			bulk.Upsert(pairs...)
-			_, err = bulk.Run()
-		}
-		return col.Remove(bson.M{"key": oldKey})
-	} else {
-		pairs := []interface{}{}
-		for key, itmMp := range revIdx {
-			param := fmt.Sprintf("value.%s", key)
-			pairs = append(pairs, bson.M{"key": dbKey})
-			if len(itmMp) == 0 {
-				pairs = append(pairs, bson.M{"$unset": bson.M{param: 1}})
-			} else {
-				pairs = append(pairs, bson.M{"$set": bson.M{"key": dbKey,
-					param: itmMp.Slice()}})
-			}
-		}
-		if len(pairs) != 0 {
-			bulk := col.Bulk()
-			bulk.Unordered()
-			bulk.Upsert(pairs...)
-			_, err = bulk.Run()
-		}
-	}
-	return
-}
-
-//RemoveFilterReverseIndexesDrv removes ReverseIndexes for a specific itemID
-func (ms *MongoStorage) RemoveFilterReverseIndexesDrv(cacheID, itemIDPrefix string) (err error) {
-	session, col := ms.conn(colRFI)
-	defer session.Close()
-	err = col.Remove(bson.M{"key": utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix})
-	//redis compatibility
 	if err == mgo.ErrNotFound {
 		err = nil
 	}
@@ -2147,20 +2145,17 @@ func (ms *MongoStorage) MatchFilterIndexDrv(cacheID, itemIDPrefix,
 	defer session.Close()
 	var result struct {
 		Key   string
-		Value map[string][]string
+		Value []string
 	}
-	fldKey := fmt.Sprintf("value.%s",
-		utils.ConcatenatedKey(filterType, fldName, fldVal))
+	dbKey := utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix
 	if err = col.Find(
-		bson.M{"key": utils.CacheInstanceToPrefix[cacheID] + itemIDPrefix,
-			fldKey: bson.M{"$exists": true}}).Select(bson.M{fldKey: true}).One(&result); err != nil {
+		bson.M{"key": utils.ConcatenatedKey(dbKey, filterType, fldName, fldVal)}).One(&result); err != nil {
 		if err == mgo.ErrNotFound {
 			err = utils.ErrNotFound
 		}
 		return nil, err
 	}
-	itemIDs = utils.StringMapFromSlice(
-		result.Value[utils.ConcatenatedKey(filterType, fldName, fldVal)])
+	itemIDs = utils.StringMapFromSlice(result.Value)
 	return
 }
 
@@ -2253,7 +2248,6 @@ func (ms *MongoStorage) SetThresholdProfileDrv(tp *ThresholdProfile) (err error)
 func (ms *MongoStorage) RemThresholdProfileDrv(tenant, id string) (err error) {
 	session, col := ms.conn(colTps)
 	defer session.Close()
-	utils.Logger.Debug(fmt.Sprintf("dbKey %+v", session))
 	err = col.Remove(bson.M{"tenant": tenant, "id": id})
 	if err != nil {
 		return err
@@ -2371,6 +2365,34 @@ func (ms *MongoStorage) SetAttributeProfileDrv(r *AttributeProfile) (err error) 
 
 func (ms *MongoStorage) RemoveAttributeProfileDrv(tenant, id string) (err error) {
 	session, col := ms.conn(colAttr)
+	defer session.Close()
+	if err = col.Remove(bson.M{"tenant": tenant, "id": id}); err != nil {
+		return
+	}
+	return nil
+}
+
+func (ms *MongoStorage) GetChargerProfileDrv(tenant, id string) (r *ChargerProfile, err error) {
+	session, col := ms.conn(colCpp)
+	defer session.Close()
+	if err = col.Find(bson.M{"tenant": tenant, "id": id}).One(&r); err != nil {
+		if err == mgo.ErrNotFound {
+			err = utils.ErrNotFound
+		}
+		return nil, err
+	}
+	return
+}
+
+func (ms *MongoStorage) SetChargerProfileDrv(r *ChargerProfile) (err error) {
+	session, col := ms.conn(colCpp)
+	defer session.Close()
+	_, err = col.Upsert(bson.M{"tenant": r.Tenant, "id": r.ID}, r)
+	return
+}
+
+func (ms *MongoStorage) RemoveChargerProfileDrv(tenant, id string) (err error) {
+	session, col := ms.conn(colCpp)
 	defer session.Close()
 	if err = col.Remove(bson.M{"tenant": tenant, "id": id}); err != nil {
 		return

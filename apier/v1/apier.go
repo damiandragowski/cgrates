@@ -51,7 +51,8 @@ type ApierV1 struct {
 	Users       rpcclient.RpcClientConnection
 	CDRs        rpcclient.RpcClientConnection // FixMe: populate it from cgr-engine
 	ServManager *servmanager.ServiceManager   // Need to have them capitalize so we can export in V2
-	HTTPPoster  *utils.HTTPPoster
+	HTTPPoster  *engine.HTTPPoster
+	FilterS     *engine.FilterS //Used for CDR Exporter
 }
 
 func (self *ApierV1) GetDestination(dstId string, reply *engine.Destination) error {
@@ -201,7 +202,8 @@ func (self *ApierV1) LoadDestination(attrs AttrLoadDestination, reply *string) e
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if loaded, err := dbReader.LoadDestinationsFiltered(attrs.ID); err != nil {
 		return utils.NewErrServerError(err)
 	} else if !loaded {
@@ -219,7 +221,8 @@ func (self *ApierV1) LoadDerivedChargers(attrs utils.TPDerivedChargers, reply *s
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadDerivedChargersFiltered(&attrs, true); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -240,7 +243,8 @@ func (self *ApierV1) LoadRatingPlan(attrs AttrLoadRatingPlan, reply *string) err
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if loaded, err := dbReader.LoadRatingPlansFiltered(attrs.RatingPlanId); err != nil {
 		return utils.NewErrServerError(err)
 	} else if !loaded {
@@ -255,7 +259,8 @@ func (self *ApierV1) LoadRatingProfile(attrs utils.TPRatingProfile, reply *strin
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadRatingProfilesFiltered(&attrs); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -273,7 +278,8 @@ func (self *ApierV1) LoadSharedGroup(attrs AttrLoadSharedGroup, reply *string) e
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadSharedGroupsFiltered(attrs.SharedGroupId, true); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -291,7 +297,8 @@ func (self *ApierV1) LoadCdrStats(attrs AttrLoadCdrStats, reply *string) error {
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadCdrStatsFiltered(attrs.CdrStatsId, true); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -311,7 +318,8 @@ func (self *ApierV1) LoadTariffPlanFromStorDb(attrs AttrLoadTpFromStorDb, reply 
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if err := dbReader.LoadAll(); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -402,17 +410,8 @@ func (self *ApierV1) ImportTariffPlanFromFolder(attrs utils.AttrImportTPFromFold
 	return nil
 }
 
-type AttrSetRatingProfile struct {
-	Tenant                string                      // Tenant's Id
-	Category              string                      // TypeOfRecord
-	Direction             string                      // Traffic direction, OUT is the only one supported for now
-	Subject               string                      // Rating subject, usually the same as account
-	Overwrite             bool                        // Overwrite if exists
-	RatingPlanActivations []*utils.TPRatingActivation // Activate rating plans at specific time
-}
-
 // Sets a specific rating profile working with data directly in the DataDB without involving storDb
-func (self *ApierV1) SetRatingProfile(attrs AttrSetRatingProfile, reply *string) (err error) {
+func (self *ApierV1) SetRatingProfile(attrs utils.AttrSetRatingProfile, reply *string) (err error) {
 	if missing := utils.MissingStructFields(&attrs, []string{"Tenant", "TOR", "Direction", "Subject", "RatingPlanActivations"}); len(missing) != 0 {
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
@@ -433,23 +432,42 @@ func (self *ApierV1) SetRatingProfile(attrs AttrSetRatingProfile, reply *string)
 		rpfl = &engine.RatingProfile{Id: keyId, RatingPlanActivations: make(engine.RatingPlanActivations, 0)}
 	}
 	for _, ra := range attrs.RatingPlanActivations {
-		at, err := utils.ParseTimeDetectLayout(ra.ActivationTime, self.Config.DefaultTimezone)
+		at, err := utils.ParseTimeDetectLayout(ra.ActivationTime,
+			self.Config.GeneralCfg().DefaultTimezone)
 		if err != nil {
 			return fmt.Errorf(fmt.Sprintf("%s:Cannot parse activation time from %v", utils.ErrServerError.Error(), ra.ActivationTime))
 		}
-		if exists, err := self.DataManager.HasData(utils.RATING_PLAN_PREFIX, ra.RatingPlanId, ""); err != nil {
+		if exists, err := self.DataManager.HasData(utils.RATING_PLAN_PREFIX,
+			ra.RatingPlanId, ""); err != nil {
 			return utils.NewErrServerError(err)
 		} else if !exists {
 			return fmt.Errorf(fmt.Sprintf("%s:RatingPlanId:%s", utils.ErrNotFound.Error(), ra.RatingPlanId))
 		}
-		rpfl.RatingPlanActivations = append(rpfl.RatingPlanActivations, &engine.RatingPlanActivation{ActivationTime: at, RatingPlanId: ra.RatingPlanId,
-			FallbackKeys: utils.FallbackSubjKeys(tpRpf.Direction, tpRpf.Tenant, tpRpf.Category, ra.FallbackSubjects)})
+		rpfl.RatingPlanActivations = append(rpfl.RatingPlanActivations,
+			&engine.RatingPlanActivation{
+				ActivationTime: at,
+				RatingPlanId:   ra.RatingPlanId,
+				FallbackKeys: utils.FallbackSubjKeys(tpRpf.Direction,
+					tpRpf.Tenant, tpRpf.Category, ra.FallbackSubjects)})
 	}
 	if err := self.DataManager.SetRatingProfile(rpfl, utils.NonTransactional); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*reply = OK
 	return nil
+}
+
+func (self *ApierV1) GetRatingProfile(attrs utils.AttrGetRatingProfile, reply *engine.RatingProfile) (err error) {
+	if missing := utils.MissingStructFields(&attrs, []string{"Tenant", "Category", "Direction", "Subject"}); len(missing) != 0 {
+		return utils.NewErrMandatoryIeMissing(missing...)
+	}
+	if rpPrf, err := self.DataManager.GetRatingProfile(attrs.GetID(),
+		false, utils.NonTransactional); err != nil {
+		return utils.APIErrorHandler(err)
+	} else {
+		*reply = *rpPrf
+	}
+	return
 }
 
 // Deprecated attrs
@@ -695,7 +713,8 @@ func (self *ApierV1) LoadAccountActions(attrs utils.TPAccountActions, reply *str
 	if len(attrs.TPid) == 0 {
 		return utils.NewErrMandatoryIeMissing("TPid")
 	}
-	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb, attrs.TPid, self.Config.DefaultTimezone)
+	dbReader := engine.NewTpReader(self.DataManager.DataDB(), self.StorDb,
+		attrs.TPid, self.Config.GeneralCfg().DefaultTimezone)
 	if _, err := guardian.Guardian.Guard(func() (interface{}, error) {
 		if err := dbReader.LoadAccountActionsFiltered(&attrs); err != nil {
 			return 0, err
@@ -1015,6 +1034,19 @@ func (self *ApierV1) ReloadCache(attrs utils.AttrReloadCache, reply *string) (er
 	if err = self.DataManager.CacheDataFromDB(utils.AttributeProfilePrefix, dataIDs, true); err != nil {
 		return
 	}
+	// ChargerProfiles
+	dataIDs = make([]string, 0)
+	if attrs.ChargerProfileIDs == nil {
+		dataIDs = nil // Reload all
+	} else if len(*attrs.ChargerProfileIDs) > 0 {
+		dataIDs = make([]string, len(*attrs.ChargerProfileIDs))
+		for idx, dId := range *attrs.ChargerProfileIDs {
+			dataIDs[idx] = dId
+		}
+	}
+	if err = self.DataManager.CacheDataFromDB(utils.ChargerProfilePrefix, dataIDs, true); err != nil {
+		return
+	}
 
 	*reply = utils.OK
 	return nil
@@ -1024,7 +1056,7 @@ func (self *ApierV1) LoadCache(args utils.AttrReloadCache, reply *string) (err e
 	if args.FlushAll {
 		engine.Cache.Clear(nil)
 	}
-	var dstIDs, rvDstIDs, rplIDs, rpfIDs, actIDs, aplIDs, aapIDs, atrgIDs, sgIDs, lcrIDs, dcIDs, alsIDs, rvAlsIDs, rspIDs, resIDs, stqIDs, stqpIDs, thIDs, thpIDs, fltrIDs, splpIDs, alsPrfIDs []string
+	var dstIDs, rvDstIDs, rplIDs, rpfIDs, actIDs, aplIDs, aapIDs, atrgIDs, sgIDs, lcrIDs, dcIDs, alsIDs, rvAlsIDs, rspIDs, resIDs, stqIDs, stqpIDs, thIDs, thpIDs, fltrIDs, splpIDs, alsPrfIDs, cppIDs []string
 	if args.DestinationIDs == nil {
 		dstIDs = nil
 	} else {
@@ -1135,7 +1167,15 @@ func (self *ApierV1) LoadCache(args utils.AttrReloadCache, reply *string) (err e
 	} else {
 		alsPrfIDs = *args.AttributeProfileIDs
 	}
-	if err := self.DataManager.LoadDataDBCache(dstIDs, rvDstIDs, rplIDs, rpfIDs, actIDs, aplIDs, aapIDs, atrgIDs, sgIDs, lcrIDs, dcIDs, alsIDs, rvAlsIDs, rspIDs, resIDs, stqIDs, stqpIDs, thIDs, thpIDs, fltrIDs, splpIDs, alsPrfIDs); err != nil {
+	if args.ChargerProfileIDs == nil {
+		cppIDs = nil
+	} else {
+		cppIDs = *args.ChargerProfileIDs
+	}
+	if err := self.DataManager.LoadDataDBCache(dstIDs, rvDstIDs, rplIDs,
+		rpfIDs, actIDs, aplIDs, aapIDs, atrgIDs, sgIDs, lcrIDs, dcIDs, alsIDs,
+		rvAlsIDs, rspIDs, resIDs, stqIDs, stqpIDs, thIDs, thpIDs,
+		fltrIDs, splpIDs, alsPrfIDs, cppIDs); err != nil {
 		return utils.NewErrServerError(err)
 	}
 	*reply = utils.OK
@@ -1316,6 +1356,14 @@ func (self *ApierV1) FlushCache(args utils.AttrReloadCache, reply *string) (err 
 				true, utils.NonTransactional)
 		}
 	}
+	if args.ChargerProfileIDs == nil {
+		engine.Cache.Clear([]string{utils.CacheChargerProfiles})
+	} else if len(*args.ChargerProfileIDs) != 0 {
+		for _, key := range *args.ChargerProfileIDs {
+			engine.Cache.Remove(utils.CacheChargerProfiles, key,
+				true, utils.NonTransactional)
+		}
+	}
 
 	*reply = utils.OK
 	return
@@ -1344,6 +1392,7 @@ func (self *ApierV1) GetCacheStats(attrs utils.AttrCacheStats, reply *utils.Cach
 	cs.Filters = len(engine.Cache.GetItemIDs(utils.CacheFilters, ""))
 	cs.SupplierProfiles = len(engine.Cache.GetItemIDs(utils.CacheSupplierProfiles, ""))
 	cs.AttributeProfiles = len(engine.Cache.GetItemIDs(utils.CacheAttributeProfiles, ""))
+	cs.ChargerProfiles = len(engine.Cache.GetItemIDs(utils.CacheChargerProfiles, ""))
 
 	if self.CdrStatsSrv != nil {
 		var queueIds []string
@@ -1772,6 +1821,25 @@ func (v1 *ApierV1) GetCacheKeys(args utils.ArgsCacheKeys, reply *utils.ArgsCache
 		}
 	}
 
+	if args.ChargerProfileIDs != nil {
+		var ids []string
+		if len(*args.ChargerProfileIDs) != 0 {
+			for _, id := range *args.ChargerProfileIDs {
+				if _, hasIt := engine.Cache.Get(utils.CacheChargerProfiles, id); hasIt {
+					ids = append(ids, id)
+				}
+			}
+		} else {
+			for _, id := range engine.Cache.GetItemIDs(utils.CacheChargerProfiles, "") {
+				ids = append(ids, id)
+			}
+		}
+		ids = args.Paginator.PaginateStringSlice(ids)
+		if len(ids) != 0 {
+			reply.ChargerProfileIDs = &ids
+		}
+	}
+
 	return
 }
 
@@ -1811,7 +1879,8 @@ func (self *ApierV1) LoadTariffPlanFromFolder(attrs utils.AttrLoadTpFromFolder, 
 			path.Join(attrs.FolderPath, utils.FiltersCsv),
 			path.Join(attrs.FolderPath, utils.SuppliersCsv),
 			path.Join(attrs.FolderPath, utils.AttributesCsv),
-		), "", self.Config.DefaultTimezone)
+			path.Join(attrs.FolderPath, utils.ChargersCsv),
+		), "", self.Config.GeneralCfg().DefaultTimezone)
 	if err := loader.LoadAll(); err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -2054,7 +2123,7 @@ type ArgsReplyFailedPosts struct {
 
 // ReplayFailedPosts will repost failed requests found in the FailedRequestsInDir
 func (v1 *ApierV1) ReplayFailedPosts(args ArgsReplyFailedPosts, reply *string) (err error) {
-	failedReqsInDir := v1.Config.FailedPostsDir
+	failedReqsInDir := v1.Config.GeneralCfg().FailedPostsDir
 	if args.FailedRequestsInDir != nil && *args.FailedRequestsInDir != "" {
 		failedReqsInDir = *args.FailedRequestsInDir
 	}
@@ -2096,7 +2165,7 @@ func (v1 *ApierV1) ReplayFailedPosts(args ArgsReplyFailedPosts, reply *string) (
 				return 0, err
 			}
 			return 0, nil
-		}, v1.Config.LockingTimeout, utils.FileLockPrefix+filePath)
+		}, v1.Config.GeneralCfg().LockingTimeout, utils.FileLockPrefix+filePath)
 		if err != nil {
 			return utils.NewErrServerError(err)
 		}
@@ -2106,16 +2175,19 @@ func (v1 *ApierV1) ReplayFailedPosts(args ArgsReplyFailedPosts, reply *string) (
 		}
 		switch ffn.Transport {
 		case utils.MetaHTTPjsonCDR, utils.MetaHTTPjsonMap, utils.MetaHTTPjson, utils.META_HTTP_POST:
-			_, err = utils.NewHTTPPoster(v1.Config.HttpSkipTlsVerify,
-				v1.Config.ReplyTimeout).Post(ffn.Address, utils.PosterTransportContentTypes[ffn.Transport], fileContent,
-				v1.Config.PosterAttempts, failoverPath)
+			_, err = engine.NewHTTPPoster(v1.Config.GeneralCfg().HttpSkipTlsVerify,
+				v1.Config.GeneralCfg().ReplyTimeout).Post(ffn.Address,
+				utils.PosterTransportContentTypes[ffn.Transport], fileContent,
+				v1.Config.GeneralCfg().PosterAttempts, failoverPath)
 		case utils.MetaAMQPjsonCDR, utils.MetaAMQPjsonMap:
-			var amqpPoster *utils.AMQPPoster
-			amqpPoster, err = utils.AMQPPostersCache.GetAMQPPoster(ffn.Address, v1.Config.PosterAttempts, failedReqsOutDir)
+			var amqpPoster *engine.AMQPPoster
+			amqpPoster, err = engine.AMQPPostersCache.GetAMQPPoster(ffn.Address,
+				v1.Config.GeneralCfg().PosterAttempts, failedReqsOutDir)
 			if err == nil { // error will be checked bellow
 				var chn *amqp.Channel
 				chn, err = amqpPoster.Post(
-					nil, utils.PosterTransportContentTypes[ffn.Transport], fileContent, file.Name())
+					nil, utils.PosterTransportContentTypes[ffn.Transport],
+					fileContent, file.Name())
 				if chn != nil {
 					chn.Close()
 				}
@@ -2137,7 +2209,7 @@ func (v1 *ApierV1) ReplayFailedPosts(args ArgsReplyFailedPosts, reply *string) (
 					return 0, err
 				}
 				return 0, nil
-			}, v1.Config.LockingTimeout, utils.FileLockPrefix+failoverPath)
+			}, v1.Config.GeneralCfg().LockingTimeout, utils.FileLockPrefix+failoverPath)
 			if err != nil {
 				return utils.NewErrServerError(err)
 			}

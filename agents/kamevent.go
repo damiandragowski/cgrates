@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/sessions"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -40,12 +39,17 @@ const (
 	KamTRLabel             = "tr_label"
 	KamHashEntry           = "h_entry"
 	KamHashID              = "h_id"
+	KamReplyRoute          = "reply_route"
 	KamCGRSubsystems       = "cgr_subsystems"
+	KamCGRContext          = "cgr_context"
 	EvapiConnID            = "EvapiConnID" // used to share connID info in event for remote disconnects
+	CGR_DLG_LIST           = "CGR_DLG_LIST"
 )
 
-var kamReservedFields = []string{EVENT, KamTRIndex, KamTRLabel,
-	KamHashEntry, KamHashID, KamCGRSubsystems}
+var (
+	kamReservedEventFields = []string{EVENT, KamTRIndex, KamTRLabel, KamCGRSubsystems, KamCGRContext, KamReplyRoute}
+	kamReservedCDRFields   = append(kamReservedEventFields, KamHashEntry, KamHashID) // HashEntry and id are needed in events for disconnects
+)
 
 func NewKamSessionDisconnect(hEntry, hID, reason string) *KamSessionDisconnect {
 	return &KamSessionDisconnect{
@@ -85,9 +89,6 @@ func (kev KamEvent) MissingParameter() bool {
 		return utils.IsSliceMember([]string{
 			kev[KamTRIndex],
 			kev[KamTRLabel],
-			kev[utils.SetupTime],
-			kev[utils.Account],
-			kev[utils.Destination],
 		}, "")
 	case CGR_CALL_START:
 		return utils.IsSliceMember([]string{
@@ -118,38 +119,14 @@ func (kev KamEvent) AsMapStringInterface() (mp map[string]interface{}) {
 		if k == utils.Usage {
 			v += "s" // mark the Usage as seconds
 		}
-		if !utils.IsSliceMember(kamReservedFields, k) { // reserved attributes not getting into event
+		if !utils.IsSliceMember(kamReservedEventFields, k) { // reserved attributes not getting into event
 			mp[k] = v
 		}
 	}
-	return
-}
-
-// AsCDR converts KamEvent into CDR
-func (kev KamEvent) AsCDR(timezone string) (cdr *engine.CDR) {
-	cdr = new(engine.CDR)
-	cdr.ExtraFields = make(map[string]string)
-	for fld, val := range kev { // first ExtraFields so we can overwrite
-		if !utils.IsSliceMember(utils.PrimaryCdrFields, fld) &&
-			!utils.IsSliceMember(kamReservedFields, fld) {
-			cdr.ExtraFields[fld] = val
-		}
+	if _, has := mp[utils.Source]; !has {
+		mp[utils.Source] = utils.KamailioAgent
 	}
-	cdr.ToR = utils.VOICE
-	cdr.OriginID = kev[utils.OriginID]
-	cdr.OriginHost = kev[utils.OriginHost]
-	cdr.Source = "KamailioEvent"
-	cdr.RequestType = utils.FirstNonEmpty(kev[utils.RequestType], config.CgrConfig().DefaultReqType)
-	cdr.Tenant = utils.FirstNonEmpty(kev[utils.Tenant], config.CgrConfig().DefaultTenant)
-	cdr.Category = utils.FirstNonEmpty(kev[utils.Category], config.CgrConfig().DefaultCategory)
-	cdr.Account = kev[utils.Account]
-	cdr.Subject = kev[utils.Subject]
-	cdr.Destination = kev[utils.Destination]
-	cdr.SetupTime, _ = utils.ParseTimeDetectLayout(kev[utils.SetupTime], timezone)
-	cdr.AnswerTime, _ = utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-	cdr.Usage, _ = utils.ParseDurationWithSecs(kev[utils.Usage])
-	cdr.Cost = -1
-	return cdr
+	return
 }
 
 // AsCDR converts KamEvent into CGREvent
@@ -179,10 +156,13 @@ func (kev KamEvent) AsCGREvent(timezone string) (cgrEv *utils.CGREvent, err erro
 	}
 	cgrEv = &utils.CGREvent{
 		Tenant: utils.FirstNonEmpty(kev[utils.Tenant],
-			config.CgrConfig().DefaultTenant),
+			config.CgrConfig().GeneralCfg().DefaultTenant),
 		ID:    utils.UUIDSha1Prefix(),
 		Time:  &sTime,
 		Event: kev.AsMapStringInterface(),
+	}
+	if ctx, has := kev[KamCGRContext]; has {
+		cgrEv.Context = utils.StringPointer(ctx)
 	}
 	return cgrEv, nil
 }
@@ -194,66 +174,39 @@ func (kev KamEvent) String() string {
 }
 
 func (kev KamEvent) V1AuthorizeArgs() (args *sessions.V1AuthorizeArgs) {
-	timezone := config.CgrConfig().DefaultTimezone
-	var sTime time.Time
-	switch kev[EVENT] {
-	case CGR_AUTH_REQUEST:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.SetupTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	case CGR_CALL_START:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	case CGR_CALL_END:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	default: // no/unsupported event
+	cgrEv, err := kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
 		return
 	}
 	args = &sessions.V1AuthorizeArgs{
 		GetMaxUsage: true,
-		CGREvent: utils.CGREvent{
-			Tenant: utils.FirstNonEmpty(kev[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
-			ID:    utils.UUIDSha1Prefix(),
-			Time:  &sTime,
-			Event: kev.AsMapStringInterface(),
-		},
+		CGREvent:    *cgrEv,
 	}
 	subsystems, has := kev[KamCGRSubsystems]
 	if !has {
 		return
 	}
-	if strings.Index(subsystems, utils.MetaAccounts) == -1 {
-		args.GetMaxUsage = false
+	args.GetMaxUsage = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.AuthorizeResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.GetSuppliers = strings.Index(subsystems, utils.MetaSuppliers) != -1
+	args.SuppliersIgnoreErrors = strings.Index(subsystems, utils.MetaSuppliersIgnoreErrors) != -1
+	if strings.Index(subsystems, utils.MetaSuppliersEventCost) != -1 {
+		args.SuppliersMaxCost = utils.MetaEventCost
 	}
-	if strings.Index(subsystems, utils.MetaResources) != -1 {
-		args.AuthorizeResources = true
-	}
-	if strings.Index(subsystems, utils.MetaSuppliers) != -1 {
-		args.GetSuppliers = true
-	}
-	if strings.Index(subsystems, utils.MetaAttributes) != -1 {
-		args.GetAttributes = true
-	}
-	if strings.Index(subsystems, utils.MetaThresholds) != -1 {
-		args.ProcessThresholds = utils.BoolPointer(true)
-	}
+	args.GetAttributes = strings.Index(subsystems, utils.MetaAttributes) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
 	return
 }
 
 // AsKamAuthReply builds up a Kamailio AuthReply based on arguments and reply from SessionS
 func (kev KamEvent) AsKamAuthReply(authArgs *sessions.V1AuthorizeArgs,
 	authReply *sessions.V1AuthorizeReply, rplyErr error) (kar *KamAuthReply, err error) {
-	kar = &KamAuthReply{Event: CGR_AUTH_REPLY,
+	evName := CGR_AUTH_REPLY
+	if kamRouReply, has := kev[KamReplyRoute]; has {
+		evName = kamRouReply
+	}
+	kar = &KamAuthReply{Event: evName,
 		TransactionIndex: kev[KamTRIndex],
 		TransactionLabel: kev[KamTRLabel],
 	}
@@ -277,116 +230,56 @@ func (kev KamEvent) AsKamAuthReply(authArgs *sessions.V1AuthorizeArgs,
 	if authArgs.GetSuppliers && authReply.Suppliers != nil {
 		kar.Suppliers = authReply.Suppliers.Digest()
 	}
-	if authArgs.ProcessThresholds != nil && *authArgs.ProcessThresholds {
-		kar.ThresholdHits = *authReply.ThresholdHits
+
+	if authArgs.ProcessThresholds {
+		kar.Thresholds = strings.Join(*authReply.ThresholdIDs, utils.FIELDS_SEP)
+	}
+	if authArgs.ProcessStats {
+		kar.StatQueues = strings.Join(*authReply.StatQueueIDs, utils.FIELDS_SEP)
 	}
 	return
 }
 
 // V1InitSessionArgs returns the arguments used in SessionSv1.InitSession
 func (kev KamEvent) V1InitSessionArgs() (args *sessions.V1InitSessionArgs) {
-	timezone := config.CgrConfig().DefaultTimezone
-	var sTime time.Time
-	switch kev[EVENT] {
-	case CGR_AUTH_REQUEST:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.SetupTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	case CGR_CALL_START:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	case CGR_CALL_END:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	default: // no/unsupported event
+	cgrEv, err := kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
 		return
 	}
 	args = &sessions.V1InitSessionArgs{ // defaults
 		InitSession: true,
-		CGREvent: utils.CGREvent{
-			Tenant: utils.FirstNonEmpty(kev[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
-			ID:    utils.UUIDSha1Prefix(),
-			Time:  &sTime,
-			Event: kev.AsMapStringInterface(),
-		},
+		CGREvent:    *cgrEv,
 	}
 	subsystems, has := kev[KamCGRSubsystems]
 	if !has {
 		return
 	}
-	if strings.Index(subsystems, utils.MetaAccounts) == -1 {
-		args.InitSession = false
-	}
-	if strings.Index(subsystems, utils.MetaResources) != -1 {
-		args.AllocateResources = true
-	}
-	if strings.Index(subsystems, utils.MetaAttributes) != -1 {
-		args.GetAttributes = true
-	}
-	if strings.Index(subsystems, utils.MetaThresholds) != -1 {
-		args.ProcessThresholds = utils.BoolPointer(true)
-	}
+	args.InitSession = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.AllocateResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.GetAttributes = strings.Index(subsystems, utils.MetaAttributes) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
 	return
 }
 
 // V1TerminateSessionArgs returns the arguments used in SMGv1.TerminateSession
 func (kev KamEvent) V1TerminateSessionArgs() (args *sessions.V1TerminateSessionArgs) {
-	timezone := config.CgrConfig().DefaultTimezone
-	var sTime time.Time
-	switch kev[EVENT] {
-	case CGR_AUTH_REQUEST:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.SetupTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	case CGR_CALL_START:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	case CGR_CALL_END:
-		sTimePrv, err := utils.ParseTimeDetectLayout(kev[utils.AnswerTime], timezone)
-		if err != nil {
-			return
-		}
-		sTime = sTimePrv
-	default: // no/unsupported event
+	cgrEv, err := kev.AsCGREvent(config.CgrConfig().GeneralCfg().DefaultTimezone)
+	if err != nil {
 		return
 	}
 	args = &sessions.V1TerminateSessionArgs{ // defaults
 		TerminateSession: true,
-		CGREvent: utils.CGREvent{
-			Tenant: utils.FirstNonEmpty(kev[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
-			ID:    utils.UUIDSha1Prefix(),
-			Time:  &sTime,
-			Event: kev.AsMapStringInterface(),
-		},
+		CGREvent:         *cgrEv,
 	}
 	subsystems, has := kev[KamCGRSubsystems]
 	if !has {
 		return
 	}
-	if strings.Index(subsystems, utils.MetaAccounts) == -1 {
-		args.TerminateSession = false
-	}
-	if strings.Index(subsystems, utils.MetaResources) != -1 {
-		args.ReleaseResources = true
-	}
-	if strings.Index(subsystems, utils.MetaThresholds) != -1 {
-		args.ProcessThresholds = utils.BoolPointer(true)
-	}
+	args.TerminateSession = strings.Index(subsystems, utils.MetaAccounts) != -1
+	args.ReleaseResources = strings.Index(subsystems, utils.MetaResources) != -1
+	args.ProcessThresholds = strings.Index(subsystems, utils.MetaThresholds) != -1
+	args.ProcessStats = strings.Index(subsystems, utils.MetaStats) != -1
 	return
 }
 
@@ -398,11 +291,45 @@ type KamAuthReply struct {
 	ResourceAllocation string
 	MaxUsage           int    // Maximum session time in case of success, -1 for unlimited
 	Suppliers          string // List of suppliers, comma separated
-	ThresholdHits      int
+	Thresholds         string
+	StatQueues         string
 	Error              string // Reply in case of error
 }
 
 func (self *KamAuthReply) String() string {
+	mrsh, _ := json.Marshal(self)
+	return string(mrsh)
+}
+
+type KamDlgReply struct {
+	Event        string
+	Jsonrpl_body *kamJsonDlgBody
+}
+
+type kamJsonDlgBody struct {
+	Id      int
+	Jsonrpc string
+	Result  []*kamDlgInfo
+}
+
+type kamDlgInfo struct {
+	CallId string `json:"call-id"`
+	Caller *kamCallerDlg
+}
+
+type kamCallerDlg struct {
+	Tag string
+}
+
+// NewKamDlgReply parses bytes received over the wire from Kamailio into KamDlgReply
+func NewKamDlgReply(kamEvData []byte) (rpl KamDlgReply, err error) {
+	if err = json.Unmarshal(kamEvData, &rpl); err != nil {
+		return
+	}
+	return
+}
+
+func (self *KamDlgReply) String() string {
 	mrsh, _ := json.Marshal(self)
 	return string(mrsh)
 }

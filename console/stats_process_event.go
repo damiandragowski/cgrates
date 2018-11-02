@@ -19,14 +19,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package console
 
 import (
+	"time"
+
+	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/utils"
 )
 
 func init() {
 	c := &CmdStatQueueProcessEvent{
 		name:      "stats_process_event",
-		rpcMethod: "StatSv1.ProcessEvent",
-		rpcParams: &utils.CGREvent{},
+		rpcMethod: utils.StatSv1ProcessEvent,
+		rpcParams: &dispatchers.ArgsStatProcessEventWithApiKey{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +39,7 @@ func init() {
 type CmdStatQueueProcessEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.CGREvent
+	rpcParams *dispatchers.ArgsStatProcessEventWithApiKey
 	*CommandExecuter
 }
 
@@ -50,16 +53,19 @@ func (self *CmdStatQueueProcessEvent) RpcMethod() string {
 
 func (self *CmdStatQueueProcessEvent) RpcParams(reset bool) interface{} {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.CGREvent{}
+		self.rpcParams = &dispatchers.ArgsStatProcessEventWithApiKey{}
 	}
 	return self.rpcParams
 }
 
 func (self *CmdStatQueueProcessEvent) PostprocessRpcParams() error {
+	if self.rpcParams.Time == nil {
+		self.rpcParams.Time = utils.TimePointer(time.Now())
+	}
 	return nil
 }
 
 func (self *CmdStatQueueProcessEvent) RpcResult() interface{} {
-	var atr string
+	var atr []string
 	return &atr
 }

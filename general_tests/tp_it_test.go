@@ -75,7 +75,7 @@ func TestTpStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func TestTpRpcConn(t *testing.T) {
 	var err error
-	tpRPC, err = jsonrpc.Dial("tcp", tpCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	tpRPC, err = jsonrpc.Dial("tcp", tpCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,6 +144,13 @@ func TestTpActionTriggers(t *testing.T) {
 	} else if len(atrs) != 1 {
 		t.Errorf("Calling v1.GetActionTriggers got: %v", atrs)
 	}
+	if atrs == nil {
+		t.Errorf("Expecting atrs to not be nil")
+		// atrs shoud not be nil so exit function
+		// to avoid nil segmentation fault;
+		// if this happens try to run this test manualy
+		return
+	}
 	if atrs[0].ID != "TestATR" ||
 		atrs[0].UniqueID != "Unique atr id" ||
 		*atrs[0].Balance.ID != "BID1" {
@@ -156,6 +163,13 @@ func TestTpZeroCost(t *testing.T) {
 	attrs := &utils.AttrGetAccount{Tenant: "cgrates.org", Account: "1012"}
 	if err := tpRPC.Call("ApierV2.GetAccount", attrs, &acnt); err != nil {
 		t.Error("Got error on ApierV2.GetAccount: ", err.Error())
+	}
+	if acnt == nil {
+		t.Errorf("Expecting acnt to not be nil")
+		// acnt shoud not be nil so exit function
+		// to avoid nil segmentation fault;
+		// if this happens try to run this test manualy
+		return
 	}
 	balanceValueBefore := acnt.BalanceMap[utils.MONETARY][0].Value
 	tStart := time.Date(2016, 3, 31, 0, 0, 0, 0, time.UTC)
@@ -264,7 +278,7 @@ func TestTpCreateExecuteActionMatch(t *testing.T) {
 	if err := tpRPC.Call("ApierV2.SetActions", utils.AttrSetActions{
 		ActionsId: "PAYMENT_2056bd2fe137082970f97102b64e42fd",
 		Actions: []*utils.TPAction{
-			&utils.TPAction{
+			{
 				BalanceType:   "*monetary",
 				Directions:    "*out",
 				Identifier:    "*topup",
@@ -313,7 +327,7 @@ func TestTpSetRemoveActions(t *testing.T) {
 	if err := tpRPC.Call("ApierV2.SetActions", utils.AttrSetActions{
 		ActionsId: "TO_BE_DELETED",
 		Actions: []*utils.TPAction{
-			&utils.TPAction{
+			{
 				BalanceType:   "*monetary",
 				Directions:    "*out",
 				Identifier:    "*topup",

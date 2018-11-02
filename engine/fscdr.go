@@ -41,7 +41,6 @@ const (
 	FS_HANGUP_TIME        = "end_epoch"
 	FS_DURATION           = "billsec"
 	FS_USERNAME           = "user_name"
-	FS_IP                 = "sip_local_network_addr"
 	FS_CDR_SOURCE         = "freeswitch_json"
 	FS_SIP_REQUSER        = "sip_req_user" // Apps like FusionPBX do not set dialed_extension, alternative being destination_number but that comes in customer profile, not in vars
 	FS_PROGRESS_MEDIAMSEC = "progress_mediamsec"
@@ -74,12 +73,12 @@ type FSCdr struct {
 
 func (fsCdr FSCdr) getCGRID() string {
 	return utils.Sha1(fsCdr.vars[FS_UUID],
-		utils.FirstNonEmpty(fsCdr.vars[utils.CGRHost], fsCdr.vars[FsIPv4]))
+		utils.FirstNonEmpty(fsCdr.vars[utils.CGROriginHost], fsCdr.vars[FsIPv4]))
 }
 
 func (fsCdr FSCdr) getExtraFields() map[string]string {
-	extraFields := make(map[string]string, len(fsCdr.cgrCfg.CDRSExtraFields))
-	for _, field := range fsCdr.cgrCfg.CDRSExtraFields {
+	extraFields := make(map[string]string, len(fsCdr.cgrCfg.CdrsCfg().CDRSExtraFields))
+	for _, field := range fsCdr.cgrCfg.CdrsCfg().CDRSExtraFields {
 		origFieldVal, foundInVars := fsCdr.vars[field.Id]
 		if strings.HasPrefix(field.Id, utils.STATIC_VALUE_PREFIX) { // Support for static values injected in the CDRS. it will show up as {^value:value}
 			foundInVars = true
@@ -87,7 +86,10 @@ func (fsCdr FSCdr) getExtraFields() map[string]string {
 		if !foundInVars {
 			origFieldVal = fsCdr.searchExtraField(field.Id, fsCdr.body)
 		}
-		extraFields[field.Id] = field.ParseValue(origFieldVal)
+		if parsed, err := field.Parse(origFieldVal); err == nil {
+			extraFields[field.Id] = parsed
+		}
+
 	}
 	return extraFields
 }
@@ -140,16 +142,25 @@ func (fsCdr FSCdr) AsCDR(timezone string) *CDR {
 	storCdr.CGRID = fsCdr.getCGRID()
 	storCdr.ToR = utils.VOICE
 	storCdr.OriginID = fsCdr.vars[FS_UUID]
-	storCdr.OriginHost = utils.FirstNonEmpty(fsCdr.vars[utils.CGRHost], fsCdr.vars[FS_IP])
+	storCdr.OriginHost = utils.FirstNonEmpty(fsCdr.vars[utils.CGROriginHost],
+		fsCdr.vars[FsIPv4])
 	storCdr.Source = FS_CDR_SOURCE
-	storCdr.RequestType = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_REQTYPE], fsCdr.cgrCfg.DefaultReqType)
-	storCdr.Tenant = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_TENANT], fsCdr.cgrCfg.DefaultTenant)
-	storCdr.Category = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_CATEGORY], fsCdr.cgrCfg.DefaultCategory)
-	storCdr.Account = fsCdr.firstDefined([]string{utils.CGR_ACCOUNT, FS_USERNAME}, FsUsername)
-	storCdr.Subject = fsCdr.firstDefined([]string{utils.CGR_SUBJECT, utils.CGR_ACCOUNT, FS_USERNAME}, FsUsername)
-	storCdr.Destination = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_DESTINATION], fsCdr.vars[FS_CALL_DEST_NR], fsCdr.vars[FS_SIP_REQUSER])
-	storCdr.SetupTime, _ = utils.ParseTimeDetectLayout(fsCdr.vars[FS_SETUP_TIME], timezone) // Not interested to process errors, should do them if necessary in a previous step
-	storCdr.AnswerTime, _ = utils.ParseTimeDetectLayout(fsCdr.vars[FS_ANSWER_TIME], timezone)
+	storCdr.RequestType = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_REQTYPE],
+		fsCdr.cgrCfg.GeneralCfg().DefaultReqType)
+	storCdr.Tenant = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_TENANT],
+		fsCdr.cgrCfg.GeneralCfg().DefaultTenant)
+	storCdr.Category = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_CATEGORY],
+		fsCdr.cgrCfg.GeneralCfg().DefaultCategory)
+	storCdr.Account = fsCdr.firstDefined([]string{utils.CGR_ACCOUNT, FS_USERNAME},
+		FsUsername)
+	storCdr.Subject = fsCdr.firstDefined([]string{utils.CGR_SUBJECT,
+		utils.CGR_ACCOUNT, FS_USERNAME}, FsUsername)
+	storCdr.Destination = utils.FirstNonEmpty(fsCdr.vars[utils.CGR_DESTINATION],
+		fsCdr.vars[FS_CALL_DEST_NR], fsCdr.vars[FS_SIP_REQUSER])
+	storCdr.SetupTime, _ = utils.ParseTimeDetectLayout(fsCdr.vars[FS_SETUP_TIME],
+		timezone) // Not interested to process errors, should do them if necessary in a previous step
+	storCdr.AnswerTime, _ = utils.ParseTimeDetectLayout(fsCdr.vars[FS_ANSWER_TIME],
+		timezone)
 	storCdr.Usage, _ = utils.ParseDurationWithSecs(fsCdr.vars[FS_DURATION])
 	storCdr.ExtraFields = fsCdr.getExtraFields()
 	storCdr.Cost = -1

@@ -110,7 +110,6 @@ func (self *ApierV1) RemActionTiming(attrs AttrRemActionTiming, reply *string) (
 		} else if ap == nil {
 			return 0, utils.ErrNotFound
 		}
-
 		if accID != "" {
 			delete(ap.AccountIDs, accID)
 			remAcntAPids = append(remAcntAPids, accID)
@@ -128,7 +127,6 @@ func (self *ApierV1) RemActionTiming(attrs AttrRemActionTiming, reply *string) (
 			err = self.DataManager.DataDB().SetActionPlan(ap.Id, ap, true, utils.NonTransactional)
 			goto UPDATE
 		}
-
 		if attrs.ActionPlanId != "" { // delete the entire action plan
 			ap.ActionTimings = nil              // will delete the action plan
 			for acntID := range ap.AccountIDs { // Make sure we clear indexes for all accounts
@@ -436,7 +434,8 @@ func (self *ApierV1) modifyBalance(aType string, attr *AttrAddBalance, reply *st
 	}
 	var expTime *time.Time
 	if attr.ExpiryTime != nil {
-		expTimeVal, err := utils.ParseTimeDetectLayout(*attr.ExpiryTime, self.Config.DefaultTimezone)
+		expTimeVal, err := utils.ParseTimeDetectLayout(*attr.ExpiryTime,
+			self.Config.GeneralCfg().DefaultTimezone)
 		if err != nil {
 			*reply = err.Error()
 			return err
@@ -489,7 +488,10 @@ func (self *ApierV1) modifyBalance(aType string, attr *AttrAddBalance, reply *st
 	if attr.TimingIds != nil {
 		a.Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(*attr.TimingIds))
 	}
-	at.SetActions(engine.Actions{a})
+	publishAction := &engine.Action{
+		ActionType: engine.MetaPublishBalance,
+	}
+	at.SetActions(engine.Actions{a, publishAction})
 	if err := at.Execute(nil, nil); err != nil {
 		return err
 	}
@@ -507,7 +509,8 @@ func (self *ApierV1) SetBalance(attr *utils.AttrSetBalance, reply *string) error
 	}
 	var expTime *time.Time
 	if attr.ExpiryTime != nil {
-		expTimeVal, err := utils.ParseTimeDetectLayout(*attr.ExpiryTime, self.Config.DefaultTimezone)
+		expTimeVal, err := utils.ParseTimeDetectLayout(*attr.ExpiryTime,
+			self.Config.GeneralCfg().DefaultTimezone)
 		if err != nil {
 			*reply = err.Error()
 			return err
@@ -559,7 +562,10 @@ func (self *ApierV1) SetBalance(attr *utils.AttrSetBalance, reply *string) error
 	if attr.TimingIds != nil {
 		a.Balance.TimingIDs = utils.StringMapPointer(utils.ParseStringMap(*attr.TimingIds))
 	}
-	at.SetActions(engine.Actions{a})
+	publishAction := &engine.Action{
+		ActionType: engine.MetaPublishBalance,
+	}
+	at.SetActions(engine.Actions{a, publishAction})
 	if err := at.Execute(nil, nil); err != nil {
 		*reply = err.Error()
 		return err
@@ -574,7 +580,8 @@ func (self *ApierV1) RemoveBalances(attr *utils.AttrSetBalance, reply *string) e
 	}
 	var expTime *time.Time
 	if attr.ExpiryTime != nil {
-		expTimeVal, err := utils.ParseTimeDetectLayout(*attr.ExpiryTime, self.Config.DefaultTimezone)
+		expTimeVal, err := utils.ParseTimeDetectLayout(*attr.ExpiryTime,
+			self.Config.GeneralCfg().DefaultTimezone)
 		if err != nil {
 			*reply = err.Error()
 			return err

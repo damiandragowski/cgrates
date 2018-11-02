@@ -54,8 +54,8 @@ func (tSv1 *ThresholdSv1) GetThreshold(tntID *utils.TenantID, t *engine.Threshol
 }
 
 // ProcessEvent will process an Event
-func (tSv1 *ThresholdSv1) ProcessEvent(args *engine.ArgsProcessEvent, hits *int) error {
-	return tSv1.tS.V1ProcessEvent(args, hits)
+func (tSv1 *ThresholdSv1) ProcessEvent(args *engine.ArgsProcessEvent, tIDs *[]string) error {
+	return tSv1.tS.V1ProcessEvent(args, tIDs)
 }
 
 // GetThresholdProfile returns a Threshold Profile
@@ -63,12 +63,27 @@ func (apierV1 *ApierV1) GetThresholdProfile(arg *utils.TenantID, reply *engine.T
 	if missing := utils.MissingStructFields(arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if th, err := apierV1.DataManager.GetThresholdProfile(arg.Tenant, arg.ID, false, utils.NonTransactional); err != nil {
+	if th, err := apierV1.DataManager.GetThresholdProfile(arg.Tenant, arg.ID, true, true, utils.NonTransactional); err != nil {
 		return utils.APIErrorHandler(err)
 	} else {
 		*reply = *th
 	}
 	return
+}
+
+// GetThresholdProfileIDs returns list of thresholdProfile IDs registered for a tenant
+func (apierV1 *ApierV1) GetThresholdProfileIDs(tenant string, thPrfIDs *[]string) error {
+	prfx := utils.ThresholdProfilePrefix + tenant + ":"
+	keys, err := apierV1.DataManager.DataDB().GetKeysForPrefix(prfx)
+	if err != nil {
+		return err
+	}
+	retIDs := make([]string, len(keys))
+	for i, key := range keys {
+		retIDs[i] = key[len(prfx):]
+	}
+	*thPrfIDs = retIDs
+	return nil
 }
 
 // SetThresholdProfile alters/creates a ThresholdProfile
@@ -98,5 +113,10 @@ func (apierV1 *ApierV1) RemoveThresholdProfile(args *utils.TenantID, reply *stri
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
+	return nil
+}
+
+func (tSv1 *ThresholdSv1) Ping(ign string, reply *string) error {
+	*reply = utils.Pong
 	return nil
 }

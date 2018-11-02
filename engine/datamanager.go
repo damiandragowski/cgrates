@@ -33,7 +33,7 @@ func NewDataManager(dataDB DataDB) *DataManager {
 // transparently manages data retrieval, further serialization and caching
 type DataManager struct {
 	dataDB   DataDB
-	cacheCfg config.CacheConfig
+	cacheCfg config.CacheCfg
 }
 
 // DataDB exports access to dataDB
@@ -46,7 +46,7 @@ func (dm *DataManager) DataDB() DataDB {
 
 func (dm *DataManager) LoadDataDBCache(dstIDs, rvDstIDs, rplIDs, rpfIDs, actIDs, aplIDs,
 	aaPlIDs, atrgIDs, sgIDs, lcrIDs, dcIDs, alsIDs, rvAlsIDs, rpIDs, resIDs,
-	stqIDs, stqpIDs, thIDs, thpIDs, fltrIDs, splPrflIDs, alsPrfIDs []string) (err error) {
+	stqIDs, stqpIDs, thIDs, thpIDs, fltrIDs, splPrflIDs, alsPrfIDs, cppIDs []string) (err error) {
 	if dm.DataDB().GetStorageType() == utils.MAPSTOR {
 		if dm.cacheCfg == nil {
 			return
@@ -58,7 +58,7 @@ func (dm *DataManager) LoadDataDBCache(dstIDs, rvDstIDs, rplIDs, rpfIDs, actIDs,
 				utils.ACTION_PREFIX, utils.ACTION_PLAN_PREFIX, utils.ACTION_TRIGGER_PREFIX,
 				utils.SHARED_GROUP_PREFIX, utils.ALIASES_PREFIX, utils.REVERSE_ALIASES_PREFIX, utils.StatQueuePrefix,
 				utils.StatQueueProfilePrefix, utils.ThresholdPrefix, utils.ThresholdProfilePrefix,
-				utils.FilterPrefix, utils.SupplierProfilePrefix, utils.AttributeProfilePrefix}, k) && cacheCfg.Precache {
+				utils.FilterPrefix, utils.SupplierProfilePrefix, utils.AttributeProfilePrefix, utils.ChargerProfilePrefix}, k) && cacheCfg.Precache {
 				if err := dm.PreloadCacheForPrefix(k); err != nil && err != utils.ErrInvalidKey {
 					return err
 				}
@@ -89,6 +89,7 @@ func (dm *DataManager) LoadDataDBCache(dstIDs, rvDstIDs, rplIDs, rpfIDs, actIDs,
 			utils.FilterPrefix:               fltrIDs,
 			utils.SupplierProfilePrefix:      splPrflIDs,
 			utils.AttributeProfilePrefix:     alsPrfIDs,
+			utils.ChargerProfilePrefix:       cppIDs,
 		} {
 			if err = dm.CacheDataFromDB(key, ids, false); err != nil {
 				return
@@ -148,7 +149,8 @@ func (dm *DataManager) CacheDataFromDB(prfx string, ids []string, mustBeCached b
 		utils.ThresholdProfilePrefix,
 		utils.FilterPrefix,
 		utils.SupplierProfilePrefix,
-		utils.AttributeProfilePrefix}, prfx) {
+		utils.AttributeProfilePrefix,
+		utils.ChargerProfilePrefix}, prfx) {
 		return utils.NewCGRError(utils.DataManager,
 			utils.MandatoryIEMissingCaps,
 			utils.UnsupportedCachePrefix,
@@ -213,33 +215,36 @@ func (dm *DataManager) CacheDataFromDB(prfx string, ids []string, mustBeCached b
 			_, err = dm.DataDB().GetReverseAlias(dataID, true, utils.NonTransactional)
 		case utils.ResourceProfilesPrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetResourceProfile(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetResourceProfile(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.ResourcesPrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetResource(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetResource(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.StatQueueProfilePrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetStatQueueProfile(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetStatQueueProfile(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.StatQueuePrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetStatQueue(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetStatQueue(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.TimingsPrefix:
 			_, err = dm.GetTiming(dataID, true, utils.NonTransactional)
 		case utils.ThresholdProfilePrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetThresholdProfile(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetThresholdProfile(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.ThresholdPrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetThreshold(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetThreshold(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.FilterPrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetFilter(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetFilter(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.SupplierProfilePrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetSupplierProfile(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetSupplierProfile(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		case utils.AttributeProfilePrefix:
 			tntID := utils.NewTenantID(dataID)
-			_, err = dm.GetAttributeProfile(tntID.Tenant, tntID.ID, true, utils.NonTransactional)
+			_, err = dm.GetAttributeProfile(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
+		case utils.ChargerProfilePrefix:
+			tntID := utils.NewTenantID(dataID)
+			_, err = dm.GetChargerProfile(tntID.Tenant, tntID.ID, false, true, utils.NonTransactional)
 		}
 		if err != nil {
 			return utils.NewCGRError(utils.DataManager,
@@ -254,9 +259,9 @@ func (dm *DataManager) CacheDataFromDB(prfx string, ids []string, mustBeCached b
 // GetStatQueue retrieves a StatQueue from dataDB
 // handles caching and deserialization of metrics
 func (dm *DataManager) GetStatQueue(tenant, id string,
-	skipCache bool, transactionID string) (sq *StatQueue, err error) {
+	cacheRead, cacheWrite bool, transactionID string) (sq *StatQueue, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheStatQueues, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -266,7 +271,7 @@ func (dm *DataManager) GetStatQueue(tenant, id string,
 	}
 	ssq, err := dm.dataDB.GetStoredStatQueueDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheStatQueues, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
@@ -275,8 +280,10 @@ func (dm *DataManager) GetStatQueue(tenant, id string,
 	if sq, err = ssq.AsStatQueue(dm.dataDB.Marshaler()); err != nil {
 		return nil, err
 	}
-	Cache.Set(utils.CacheStatQueues, tntID, sq, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheStatQueues, tntID, sq, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
@@ -303,10 +310,10 @@ func (dm *DataManager) RemoveStatQueue(tenant, id string, transactionID string) 
 }
 
 // GetFilter returns
-func (dm *DataManager) GetFilter(tenant, id string,
-	skipCache bool, transactionID string) (fltr *Filter, err error) {
+func (dm *DataManager) GetFilter(tenant, id string, cacheRead, cacheWrite bool,
+	transactionID string) (fltr *Filter, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheFilters, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -314,16 +321,24 @@ func (dm *DataManager) GetFilter(tenant, id string,
 			return x.(*Filter), nil
 		}
 	}
-	fltr, err = dm.dataDB.GetFilterDrv(tenant, id)
+	if strings.HasPrefix(id, utils.Meta) {
+		fltr, err = NewFilterFromInline(tenant, id)
+	} else {
+		fltr, err = dm.DataDB().GetFilterDrv(tenant, id)
+	}
 	if err != nil {
 		if err == utils.ErrNotFound {
-			Cache.Set(utils.CacheFilters, tntID, nil, nil,
-				cacheCommit(transactionID), transactionID)
+			if cacheWrite {
+				Cache.Set(utils.CacheFilters, tntID, nil, nil,
+					cacheCommit(transactionID), transactionID)
+			}
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheFilters, tntID, fltr, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheFilters, tntID, fltr, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
@@ -344,9 +359,9 @@ func (dm *DataManager) RemoveFilter(tenant, id, transactionID string) (err error
 }
 
 func (dm *DataManager) GetThreshold(tenant, id string,
-	skipCache bool, transactionID string) (th *Threshold, err error) {
+	cacheRead, cacheWrite bool, transactionID string) (th *Threshold, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheThresholds, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -356,14 +371,16 @@ func (dm *DataManager) GetThreshold(tenant, id string,
 	}
 	th, err = dm.dataDB.GetThresholdDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheThresholds, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheThresholds, tntID, th, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheThresholds, tntID, th, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
@@ -386,10 +403,10 @@ func (dm *DataManager) RemoveThreshold(tenant, id, transactionID string) (err er
 	return
 }
 
-func (dm *DataManager) GetThresholdProfile(tenant, id string, skipCache bool,
+func (dm *DataManager) GetThresholdProfile(tenant, id string, cacheRead, cacheWrite bool,
 	transactionID string) (th *ThresholdProfile, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheThresholdProfiles, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -399,18 +416,24 @@ func (dm *DataManager) GetThresholdProfile(tenant, id string, skipCache bool,
 	}
 	th, err = dm.dataDB.GetThresholdProfileDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheThresholdProfiles, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheThresholdProfiles, tntID, th, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheThresholdProfiles, tntID, th, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
 func (dm *DataManager) SetThresholdProfile(th *ThresholdProfile, withIndex bool) (err error) {
+	oldTh, err := dm.GetThresholdProfile(th.Tenant, th.ID, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().SetThresholdProfileDrv(th); err != nil {
 		return err
 	}
@@ -419,74 +442,31 @@ func (dm *DataManager) SetThresholdProfile(th *ThresholdProfile, withIndex bool)
 		return
 	}
 	if withIndex {
-		//remove old ThresholdProfile indexes
-		indexerRemove := NewFilterIndexer(dm, utils.ThresholdProfilePrefix, th.Tenant)
-		if err = indexerRemove.RemoveItemFromIndex(th.ID); err != nil &&
-			err.Error() != utils.ErrNotFound.Error() {
-			return
-		}
-		indexer := NewFilterIndexer(dm, utils.ThresholdProfilePrefix, th.Tenant)
-		//Verify matching Filters for every FilterID from ThresholdProfile
-		fltrIDs := make([]string, len(th.FilterIDs))
-		for i, fltrID := range th.FilterIDs {
-			fltrIDs[i] = fltrID
-		}
-		if len(fltrIDs) == 0 {
-			fltrIDs = []string{utils.META_NONE}
-		}
-		for _, fltrID := range fltrIDs {
-			var fltr *Filter
-			if fltrID == utils.META_NONE {
-				fltr = &Filter{
-					Tenant: th.Tenant,
-					ID:     th.ID,
-					Rules: []*FilterRule{
-						&FilterRule{
-							Type:      utils.MetaDefault,
-							FieldName: utils.META_ANY,
-							Values:    []string{utils.META_ANY},
-						},
-					},
-				}
-			} else if strings.HasPrefix(fltrID, utils.Meta) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err = inFltr.AsFilter(th.Tenant)
-				if err != nil {
-					return err
-				}
-			} else if fltr, err = dm.GetFilter(th.Tenant, fltrID,
-				false, utils.NonTransactional); err != nil {
-				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for threshold: %+v",
-						fltrID, th)
-				}
-				return
-			}
-			for _, flt := range fltr.Rules {
-				if flt.Type != MetaString {
-					continue
-				}
-				for _, fldVal := range flt.Values {
-					if err = indexer.loadFldNameFldValIndex(flt.Type,
-						flt.FieldName, fldVal); err != nil && err != utils.ErrNotFound {
-						return err
-					}
+		if oldTh != nil {
+			var needsRemove bool
+			for _, fltrID := range oldTh.FilterIDs {
+				if !utils.IsSliceMember(th.FilterIDs, fltrID) {
+					needsRemove = true
 				}
 			}
-			indexer.IndexTPFilter(FilterToTPFilter(fltr), th.ID)
+			if needsRemove {
+				if err = NewFilterIndexer(dm, utils.ThresholdProfilePrefix,
+					th.Tenant).RemoveItemFromIndex(th.Tenant, th.ID, oldTh.FilterIDs); err != nil {
+					return
+				}
+			}
 		}
-		if err = indexer.StoreIndexes(true, utils.NonTransactional); err != nil {
-			return
-		}
+		return createAndIndex(utils.ThresholdProfilePrefix, th.Tenant, utils.EmptyString, th.ID, th.FilterIDs, dm)
 	}
 	return
 }
 
 func (dm *DataManager) RemoveThresholdProfile(tenant, id,
 	transactionID string, withIndex bool) (err error) {
+	oldTh, err := dm.GetThresholdProfile(tenant, id, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().RemThresholdProfileDrv(tenant, id); err != nil {
 		return
 	}
@@ -494,15 +474,15 @@ func (dm *DataManager) RemoveThresholdProfile(tenant, id,
 		cacheCommit(transactionID), transactionID)
 	if withIndex {
 		return NewFilterIndexer(dm,
-			utils.ThresholdProfilePrefix, tenant).RemoveItemFromIndex(id)
+			utils.ThresholdProfilePrefix, tenant).RemoveItemFromIndex(tenant, id, oldTh.FilterIDs)
 	}
 	return
 }
 
-func (dm *DataManager) GetStatQueueProfile(tenant, id string, skipCache bool,
+func (dm *DataManager) GetStatQueueProfile(tenant, id string, cacheRead, cacheWrite bool,
 	transactionID string) (sqp *StatQueueProfile, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheStatQueueProfiles, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -512,18 +492,24 @@ func (dm *DataManager) GetStatQueueProfile(tenant, id string, skipCache bool,
 	}
 	sqp, err = dm.dataDB.GetStatQueueProfileDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheStatQueueProfiles, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheStatQueueProfiles, tntID, sqp, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheStatQueueProfiles, tntID, sqp, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
 func (dm *DataManager) SetStatQueueProfile(sqp *StatQueueProfile, withIndex bool) (err error) {
+	oldSts, err := dm.GetStatQueueProfile(sqp.Tenant, sqp.ID, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().SetStatQueueProfileDrv(sqp); err != nil {
 		return err
 	}
@@ -532,80 +518,38 @@ func (dm *DataManager) SetStatQueueProfile(sqp *StatQueueProfile, withIndex bool
 		return
 	}
 	if withIndex {
-		indexer := NewFilterIndexer(dm, utils.StatQueueProfilePrefix, sqp.Tenant)
-		//remove old StatQueueProfile indexes
-		if err = indexer.RemoveItemFromIndex(sqp.ID); err != nil &&
-			err.Error() != utils.ErrNotFound.Error() {
-			return
-		}
-		//Verify matching Filters for every FilterID from StatQueueProfile
-		fltrIDs := make([]string, len(sqp.FilterIDs))
-		for i, fltrID := range sqp.FilterIDs {
-			fltrIDs[i] = fltrID
-		}
-		if len(fltrIDs) == 0 {
-			fltrIDs = []string{utils.META_NONE}
-		}
-		for _, fltrID := range fltrIDs {
-			var fltr *Filter
-			if fltrID == utils.META_NONE {
-				fltr = &Filter{
-					Tenant: sqp.Tenant,
-					ID:     sqp.ID,
-					Rules: []*FilterRule{
-						&FilterRule{
-							Type:      utils.MetaDefault,
-							FieldName: utils.META_ANY,
-							Values:    []string{utils.META_ANY},
-						},
-					},
-				}
-			} else if strings.HasPrefix(fltrID, utils.Meta) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err = inFltr.AsFilter(sqp.Tenant)
-				if err != nil {
-					return err
-				}
-			} else if fltr, err = dm.GetFilter(sqp.Tenant, fltrID,
-				false, utils.NonTransactional); err != nil {
-				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for statqueue: %+v",
-						fltrID, sqp)
-				}
-				return
-			}
-			for _, flt := range fltr.Rules {
-				if flt.Type != MetaString {
-					continue
-				}
-				for _, fldVal := range flt.Values {
-					if err = indexer.loadFldNameFldValIndex(flt.Type,
-						flt.FieldName, fldVal); err != nil && err != utils.ErrNotFound {
-						return err
-					}
+		if oldSts != nil {
+			var needsRemove bool
+			for _, fltrID := range oldSts.FilterIDs {
+				if !utils.IsSliceMember(sqp.FilterIDs, fltrID) {
+					needsRemove = true
 				}
 			}
-			indexer.IndexTPFilter(FilterToTPFilter(fltr), sqp.ID)
+			if needsRemove {
+				if err = NewFilterIndexer(dm, utils.StatQueueProfilePrefix,
+					sqp.Tenant).RemoveItemFromIndex(sqp.Tenant, sqp.ID, oldSts.FilterIDs); err != nil {
+					return
+				}
+			}
 		}
-		if err = indexer.StoreIndexes(true, utils.NonTransactional); err != nil {
-			return
-		}
+		return createAndIndex(utils.StatQueueProfilePrefix, sqp.Tenant, utils.EmptyString, sqp.ID, sqp.FilterIDs, dm)
 	}
 	return
 }
 
 func (dm *DataManager) RemoveStatQueueProfile(tenant, id,
 	transactionID string, withIndex bool) (err error) {
+	oldSts, err := dm.GetStatQueueProfile(tenant, id, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().RemStatQueueProfileDrv(tenant, id); err != nil {
 		return
 	}
 	Cache.Remove(utils.CacheStatQueueProfiles, utils.ConcatenatedKey(tenant, id),
 		cacheCommit(transactionID), transactionID)
 	if withIndex {
-		return NewFilterIndexer(dm, utils.StatQueueProfilePrefix, tenant).RemoveItemFromIndex(id)
+		return NewFilterIndexer(dm, utils.StatQueueProfilePrefix, tenant).RemoveItemFromIndex(tenant, id, oldSts.FilterIDs)
 	}
 	return
 }
@@ -649,10 +593,10 @@ func (dm *DataManager) RemoveTiming(id, transactionID string) (err error) {
 	return
 }
 
-func (dm *DataManager) GetResource(tenant, id string, skipCache bool,
+func (dm *DataManager) GetResource(tenant, id string, cacheRead, cacheWrite bool,
 	transactionID string) (rs *Resource, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheResources, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -662,14 +606,16 @@ func (dm *DataManager) GetResource(tenant, id string, skipCache bool,
 	}
 	rs, err = dm.dataDB.GetResourceDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheResources, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheResources, tntID, rs, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheResources, tntID, rs, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
@@ -677,7 +623,9 @@ func (dm *DataManager) SetResource(rs *Resource) (err error) {
 	if err = dm.DataDB().SetResourceDrv(rs); err != nil {
 		return
 	}
-	if err = dm.CacheDataFromDB(utils.ResourcesPrefix, []string{rs.TenantID()}, true); err != nil {
+	if err = dm.CacheDataFromDB(
+		utils.CacheInstanceToPrefix[utils.CacheResources],
+		[]string{rs.TenantID()}, true); err != nil {
 		return
 	}
 	return
@@ -692,10 +640,10 @@ func (dm *DataManager) RemoveResource(tenant, id, transactionID string) (err err
 	return
 }
 
-func (dm *DataManager) GetResourceProfile(tenant, id string,
-	skipCache bool, transactionID string) (rp *ResourceProfile, err error) {
+func (dm *DataManager) GetResourceProfile(tenant, id string, cacheRead, cacheWrite bool,
+	transactionID string) (rp *ResourceProfile, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheResourceProfiles, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -705,18 +653,24 @@ func (dm *DataManager) GetResourceProfile(tenant, id string,
 	}
 	rp, err = dm.dataDB.GetResourceProfileDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheResourceProfiles, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheResourceProfiles, tntID, rp, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheResourceProfiles, tntID, rp, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
 func (dm *DataManager) SetResourceProfile(rp *ResourceProfile, withIndex bool) (err error) {
+	oldRes, err := dm.GetResourceProfile(rp.Tenant, rp.ID, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().SetResourceProfileDrv(rp); err != nil {
 		return err
 	}
@@ -726,65 +680,21 @@ func (dm *DataManager) SetResourceProfile(rp *ResourceProfile, withIndex bool) (
 	}
 	//to be implemented in tests
 	if withIndex {
-		indexer := NewFilterIndexer(dm, utils.ResourceProfilesPrefix, rp.Tenant)
-		//remove old ResourceProfiles indexes
-		if err = indexer.RemoveItemFromIndex(rp.ID); err != nil &&
-			err.Error() != utils.ErrNotFound.Error() {
-			return
-		}
-		//Verify matching Filters for every FilterID from ResourceProfiles
-		fltrIDs := make([]string, len(rp.FilterIDs))
-		for i, fltrID := range rp.FilterIDs {
-			fltrIDs[i] = fltrID
-		}
-		if len(fltrIDs) == 0 {
-			fltrIDs = []string{utils.META_NONE}
-		}
-		for _, fltrID := range fltrIDs {
-			var fltr *Filter
-			if fltrID == utils.META_NONE {
-				fltr = &Filter{
-					Tenant: rp.Tenant,
-					ID:     rp.ID,
-					Rules: []*FilterRule{
-						&FilterRule{
-							Type:      utils.MetaDefault,
-							FieldName: utils.META_ANY,
-							Values:    []string{utils.META_ANY},
-						},
-					},
-				}
-			} else if strings.HasPrefix(fltrID, utils.Meta) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err = inFltr.AsFilter(rp.Tenant)
-				if err != nil {
-					return err
-				}
-			} else if fltr, err = dm.GetFilter(rp.Tenant, fltrID,
-				false, utils.NonTransactional); err != nil {
-				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for threshold: %+v",
-						fltrID, rp)
-				}
-				return
-			}
-			for _, flt := range fltr.Rules {
-				if flt.Type != MetaString {
-					continue
-				}
-				for _, fldVal := range flt.Values {
-					if err = indexer.loadFldNameFldValIndex(flt.Type,
-						flt.FieldName, fldVal); err != nil && err != utils.ErrNotFound {
-						return err
-					}
+		if oldRes != nil {
+			var needsRemove bool
+			for _, fltrID := range oldRes.FilterIDs {
+				if !utils.IsSliceMember(rp.FilterIDs, fltrID) {
+					needsRemove = true
 				}
 			}
-			indexer.IndexTPFilter(FilterToTPFilter(fltr), rp.ID)
+			if needsRemove {
+				if err = NewFilterIndexer(dm, utils.ResourceProfilesPrefix,
+					rp.Tenant).RemoveItemFromIndex(rp.Tenant, rp.ID, oldRes.FilterIDs); err != nil {
+					return
+				}
+			}
 		}
-		if err = indexer.StoreIndexes(true, utils.NonTransactional); err != nil {
+		if err = createAndIndex(utils.ResourceProfilesPrefix, rp.Tenant, utils.EmptyString, rp.ID, rp.FilterIDs, dm); err != nil {
 			return
 		}
 		Cache.Clear([]string{utils.CacheEventResources})
@@ -793,13 +703,17 @@ func (dm *DataManager) SetResourceProfile(rp *ResourceProfile, withIndex bool) (
 }
 
 func (dm *DataManager) RemoveResourceProfile(tenant, id, transactionID string, withIndex bool) (err error) {
+	oldRes, err := dm.GetResourceProfile(tenant, id, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().RemoveResourceProfileDrv(tenant, id); err != nil {
 		return
 	}
 	Cache.Remove(utils.CacheResourceProfiles, utils.ConcatenatedKey(tenant, id),
 		cacheCommit(transactionID), transactionID)
 	if withIndex {
-		return NewFilterIndexer(dm, utils.ResourceProfilesPrefix, tenant).RemoveItemFromIndex(id)
+		return NewFilterIndexer(dm, utils.ResourceProfilesPrefix, tenant).RemoveItemFromIndex(tenant, id, oldRes.FilterIDs)
 	}
 	return
 }
@@ -1123,22 +1037,6 @@ func (dm *DataManager) RemoveFilterIndexes(cacheID, itemIDPrefix string) (err er
 	return dm.DataDB().RemoveFilterIndexesDrv(cacheID, itemIDPrefix)
 }
 
-func (dm *DataManager) GetFilterReverseIndexes(cacheID, itemIDPrefix string,
-	fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error) {
-	return dm.DataDB().GetFilterReverseIndexesDrv(cacheID, itemIDPrefix, fldNameVal)
-}
-
-func (dm *DataManager) SetFilterReverseIndexes(cacheID, itemIDPrefix string,
-	indexes map[string]utils.StringMap,
-	commit bool, transactionID string) (err error) {
-	return dm.DataDB().SetFilterReverseIndexesDrv(cacheID,
-		itemIDPrefix, indexes, commit, transactionID)
-}
-
-func (dm *DataManager) RemoveFilterReverseIndexes(cacheID, itemIDPrefix string) (err error) {
-	return dm.DataDB().RemoveFilterReverseIndexesDrv(cacheID, itemIDPrefix)
-}
-
 func (dm *DataManager) MatchFilterIndex(cacheID, itemIDPrefix,
 	filterType, fieldName, fieldVal string) (itemIDs utils.StringMap, err error) {
 	fieldValKey := utils.ConcatenatedKey(itemIDPrefix, filterType, fieldName, fieldVal)
@@ -1186,10 +1084,10 @@ func (dm *DataManager) GetAllCdrStats() (css []*CdrStats, err error) {
 	return dm.DataDB().GetAllCdrStatsDrv()
 }
 
-func (dm *DataManager) GetSupplierProfile(tenant, id string, skipCache bool,
+func (dm *DataManager) GetSupplierProfile(tenant, id string, cacheRead, cacheWrite bool,
 	transactionID string) (supp *SupplierProfile, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheSupplierProfiles, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -1199,107 +1097,70 @@ func (dm *DataManager) GetSupplierProfile(tenant, id string, skipCache bool,
 	}
 	supp, err = dm.dataDB.GetSupplierProfileDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheSupplierProfiles, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	Cache.Set(utils.CacheSupplierProfiles, tntID, supp, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheSupplierProfiles, tntID, supp, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
 func (dm *DataManager) SetSupplierProfile(supp *SupplierProfile, withIndex bool) (err error) {
+	oldSup, err := dm.GetSupplierProfile(supp.Tenant, supp.ID, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().SetSupplierProfileDrv(supp); err != nil {
 		return err
 	}
 	if err = dm.CacheDataFromDB(utils.SupplierProfilePrefix, []string{supp.TenantID()}, true); err != nil {
 		return
 	}
-	//to be implemented in tests
 	if withIndex {
-		indexer := NewFilterIndexer(dm, utils.SupplierProfilePrefix, supp.Tenant)
-		//remove old SupplierProfile indexes
-		if err = indexer.RemoveItemFromIndex(supp.ID); err != nil &&
-			err.Error() != utils.ErrNotFound.Error() {
-			return
-		}
-		//Verify matching Filters for every FilterID from SupplierProfile
-		fltrIDs := make([]string, len(supp.FilterIDs))
-		for i, fltrID := range supp.FilterIDs {
-			fltrIDs[i] = fltrID
-		}
-		if len(fltrIDs) == 0 {
-			fltrIDs = []string{utils.META_NONE}
-		}
-		for _, fltrID := range fltrIDs {
-			var fltr *Filter
-			if fltrID == utils.META_NONE {
-				fltr = &Filter{
-					Tenant: supp.Tenant,
-					ID:     supp.ID,
-					Rules: []*FilterRule{
-						&FilterRule{
-							Type:      utils.MetaDefault,
-							FieldName: utils.META_ANY,
-							Values:    []string{utils.META_ANY},
-						},
-					},
-				}
-			} else if strings.HasPrefix(fltrID, utils.Meta) {
-				inFltr, err := NewInlineFilter(fltrID)
-				if err != nil {
-					return err
-				}
-				fltr, err = inFltr.AsFilter(supp.Tenant)
-				if err != nil {
-					return err
-				}
-			} else if fltr, err = dm.GetFilter(supp.Tenant, fltrID,
-				false, utils.NonTransactional); err != nil {
-				if err == utils.ErrNotFound {
-					err = fmt.Errorf("broken reference to filter: %+v for SupplierProfile: %+v",
-						fltrID, supp)
-				}
-				return
-			}
-
-			for _, flt := range fltr.Rules {
-				if flt.Type != MetaString {
-					continue
-				}
-				for _, fldVal := range flt.Values {
-					if err = indexer.loadFldNameFldValIndex(flt.Type, flt.FieldName, fldVal); err != nil && err != utils.ErrNotFound {
-						return err
-					}
+		if oldSup != nil {
+			var needsRemove bool
+			for _, fltrID := range oldSup.FilterIDs {
+				if !utils.IsSliceMember(supp.FilterIDs, fltrID) {
+					needsRemove = true
 				}
 			}
-			indexer.IndexTPFilter(FilterToTPFilter(fltr), supp.ID)
+			if needsRemove {
+				if err = NewFilterIndexer(dm, utils.SupplierProfilePrefix,
+					supp.Tenant).RemoveItemFromIndex(supp.Tenant, supp.ID, oldSup.FilterIDs); err != nil {
+					return
+				}
+			}
 		}
-		if err = indexer.StoreIndexes(true, utils.NonTransactional); err != nil {
-			return
-		}
+		return createAndIndex(utils.SupplierProfilePrefix, supp.Tenant, utils.EmptyString, supp.ID, supp.FilterIDs, dm)
 	}
 	return
 }
 
 func (dm *DataManager) RemoveSupplierProfile(tenant, id, transactionID string, withIndex bool) (err error) {
+	oldSupp, err := dm.GetSupplierProfile(tenant, id, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().RemoveSupplierProfileDrv(tenant, id); err != nil {
 		return
 	}
 	Cache.Remove(utils.CacheSupplierProfiles, utils.ConcatenatedKey(tenant, id),
 		cacheCommit(transactionID), transactionID)
 	if withIndex {
-		return NewFilterIndexer(dm, utils.SupplierProfilePrefix, tenant).RemoveItemFromIndex(id)
+		return NewFilterIndexer(dm, utils.SupplierProfilePrefix, tenant).RemoveItemFromIndex(tenant, id, oldSupp.FilterIDs)
 	}
 	return
 }
 
-func (dm *DataManager) GetAttributeProfile(tenant, id string, skipCache bool,
-	transactionID string) (alsPrf *AttributeProfile, err error) {
+func (dm *DataManager) GetAttributeProfile(tenant, id string, cacheRead, cacheWrite bool,
+	transactionID string) (attrPrfl *AttributeProfile, err error) {
 	tntID := utils.ConcatenatedKey(tenant, id)
-	if !skipCache {
+	if cacheRead {
 		if x, ok := Cache.Get(utils.CacheAttributeProfiles, tntID); ok {
 			if x == nil {
 				return nil, utils.ErrNotFound
@@ -1307,31 +1168,26 @@ func (dm *DataManager) GetAttributeProfile(tenant, id string, skipCache bool,
 			return x.(*AttributeProfile), nil
 		}
 	}
-	alsPrf, err = dm.dataDB.GetAttributeProfileDrv(tenant, id)
+	attrPrfl, err = dm.dataDB.GetAttributeProfileDrv(tenant, id)
 	if err != nil {
-		if err == utils.ErrNotFound {
+		if err == utils.ErrNotFound && cacheWrite {
 			Cache.Set(utils.CacheAttributeProfiles, tntID, nil, nil,
 				cacheCommit(transactionID), transactionID)
 		}
 		return nil, err
 	}
-	alsPrf.attributes = make(map[string]map[interface{}]*Attribute)
-	for _, attr := range alsPrf.Attributes {
-		alsPrf.attributes[attr.FieldName] = make(map[interface{}]*Attribute)
-		alsPrf.attributes[attr.FieldName][attr.Initial] = &Attribute{
-			FieldName:  attr.FieldName,
-			Initial:    attr.Initial,
-			Substitute: attr.Substitute,
-			Append:     attr.Append,
-		}
+	if err = attrPrfl.Compile(); err != nil {
+		return nil, err
 	}
-	Cache.Set(utils.CacheAttributeProfiles, tntID, alsPrf, nil,
-		cacheCommit(transactionID), transactionID)
+	if cacheWrite {
+		Cache.Set(utils.CacheAttributeProfiles, tntID, attrPrfl, nil,
+			cacheCommit(transactionID), transactionID)
+	}
 	return
 }
 
 func (dm *DataManager) SetAttributeProfile(ap *AttributeProfile, withIndex bool) (err error) {
-	oldAP, err := dm.GetAttributeProfile(ap.Tenant, ap.ID, true, utils.NonTransactional)
+	oldAP, err := dm.GetAttributeProfile(ap.Tenant, ap.ID, true, false, utils.NonTransactional)
 	if err != nil && err != utils.ErrNotFound {
 		return err
 	}
@@ -1341,7 +1197,6 @@ func (dm *DataManager) SetAttributeProfile(ap *AttributeProfile, withIndex bool)
 	if err = dm.CacheDataFromDB(utils.AttributeProfilePrefix, []string{ap.TenantID()}, true); err != nil {
 		return
 	}
-	//to be implemented in tests
 	if withIndex {
 		if oldAP != nil {
 			for _, ctx := range oldAP.Contexts {
@@ -1357,66 +1212,15 @@ func (dm *DataManager) SetAttributeProfile(ap *AttributeProfile, withIndex bool)
 				}
 				if needsRemove {
 					if err = NewFilterIndexer(dm, utils.AttributeProfilePrefix,
-						utils.ConcatenatedKey(ap.Tenant, ctx)).RemoveItemFromIndex(ap.ID); err != nil {
+						utils.ConcatenatedKey(ap.Tenant, ctx)).RemoveItemFromIndex(ap.Tenant, ap.ID, oldAP.FilterIDs); err != nil {
 						return
 					}
 				}
 			}
 		}
 		for _, ctx := range ap.Contexts {
-			indexer := NewFilterIndexer(dm, utils.AttributeProfilePrefix, utils.ConcatenatedKey(ap.Tenant, ctx))
-			//Verify matching Filters for every FilterID from AttributeProfile
-			fltrIDs := make([]string, len(ap.FilterIDs))
-			for i, fltrID := range ap.FilterIDs {
-				fltrIDs[i] = fltrID
-			}
-			if len(fltrIDs) == 0 {
-				fltrIDs = []string{utils.META_NONE}
-			}
-			for _, fltrID := range fltrIDs {
-				var fltr *Filter
-				if fltrID == utils.META_NONE {
-					fltr = &Filter{
-						Tenant: ap.Tenant,
-						ID:     ap.ID,
-						Rules: []*FilterRule{
-							&FilterRule{
-								Type:      utils.MetaDefault,
-								FieldName: utils.META_ANY,
-								Values:    []string{utils.META_ANY},
-							},
-						},
-					}
-				} else if strings.HasPrefix(fltrID, utils.Meta) {
-					inFltr, err := NewInlineFilter(fltrID)
-					if err != nil {
-						return err
-					}
-					fltr, err = inFltr.AsFilter(ap.Tenant)
-					if err != nil {
-						return err
-					}
-				} else if fltr, err = dm.GetFilter(ap.Tenant, fltrID,
-					false, utils.NonTransactional); err != nil {
-					if err == utils.ErrNotFound {
-						err = fmt.Errorf("broken reference to filter: %+v for AttributeProfile: %+v",
-							fltrID, ap)
-					}
-					return
-				}
-				for _, flt := range fltr.Rules {
-					if flt.Type != MetaString {
-						continue
-					}
-					for _, fldVal := range flt.Values {
-						if err = indexer.loadFldNameFldValIndex(flt.Type, flt.FieldName, fldVal); err != nil && err != utils.ErrNotFound {
-							return err
-						}
-					}
-				}
-				indexer.IndexTPFilter(FilterToTPFilter(fltr), ap.ID)
-			}
-			if err = indexer.StoreIndexes(true, utils.NonTransactional); err != nil {
+			if err = createAndIndex(utils.AttributeProfilePrefix,
+				ap.Tenant, ctx, ap.ID, ap.FilterIDs, dm); err != nil {
 				return
 			}
 		}
@@ -1426,6 +1230,10 @@ func (dm *DataManager) SetAttributeProfile(ap *AttributeProfile, withIndex bool)
 
 func (dm *DataManager) RemoveAttributeProfile(tenant, id string, contexts []string,
 	transactionID string, withIndex bool) (err error) {
+	oldAttr, err := dm.GetAttributeProfile(tenant, id, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
 	if err = dm.DataDB().RemoveAttributeProfileDrv(tenant, id); err != nil {
 		return
 	}
@@ -1434,10 +1242,84 @@ func (dm *DataManager) RemoveAttributeProfile(tenant, id string, contexts []stri
 	if withIndex {
 		for _, context := range contexts {
 			if err = NewFilterIndexer(dm, utils.AttributeProfilePrefix,
-				utils.ConcatenatedKey(tenant, context)).RemoveItemFromIndex(id); err != nil {
+				utils.ConcatenatedKey(tenant, context)).RemoveItemFromIndex(tenant, id, oldAttr.FilterIDs); err != nil {
 				return
 			}
 		}
+	}
+	return
+}
+
+func (dm *DataManager) GetChargerProfile(tenant, id string, cacheRead, cacheWrite bool,
+	transactionID string) (cpp *ChargerProfile, err error) {
+	tntID := utils.ConcatenatedKey(tenant, id)
+	if cacheRead {
+		if x, ok := Cache.Get(utils.CacheChargerProfiles, tntID); ok {
+			if x == nil {
+				return nil, utils.ErrNotFound
+			}
+			return x.(*ChargerProfile), nil
+		}
+	}
+	cpp, err = dm.dataDB.GetChargerProfileDrv(tenant, id)
+	if err != nil {
+		if err == utils.ErrNotFound && cacheWrite {
+			Cache.Set(utils.CacheChargerProfiles, tntID, nil, nil,
+				cacheCommit(transactionID), transactionID)
+		}
+		return nil, err
+	}
+	if cacheWrite {
+		Cache.Set(utils.CacheChargerProfiles, tntID, cpp, nil,
+			cacheCommit(transactionID), transactionID)
+	}
+	return
+}
+
+func (dm *DataManager) SetChargerProfile(cpp *ChargerProfile, withIndex bool) (err error) {
+	oldCpp, err := dm.GetChargerProfile(cpp.Tenant, cpp.ID, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
+	if err = dm.DataDB().SetChargerProfileDrv(cpp); err != nil {
+		return err
+	}
+	if err = dm.CacheDataFromDB(utils.ChargerProfilePrefix, []string{cpp.TenantID()}, true); err != nil {
+		return
+	}
+	if withIndex {
+		if oldCpp != nil {
+			var needsRemove bool
+			for _, fltrID := range oldCpp.FilterIDs {
+				if !utils.IsSliceMember(cpp.FilterIDs, fltrID) {
+					needsRemove = true
+				}
+			}
+			if needsRemove {
+				if err = NewFilterIndexer(dm, utils.SupplierProfilePrefix,
+					cpp.Tenant).RemoveItemFromIndex(cpp.Tenant, cpp.ID, oldCpp.FilterIDs); err != nil {
+					return
+				}
+			}
+		}
+		return createAndIndex(utils.ChargerProfilePrefix, cpp.Tenant, utils.EmptyString, cpp.ID, cpp.FilterIDs, dm)
+	}
+	return
+}
+
+func (dm *DataManager) RemoveChargerProfile(tenant, id string,
+	transactionID string, withIndex bool) (err error) {
+	oldCpp, err := dm.GetChargerProfile(tenant, id, true, false, utils.NonTransactional)
+	if err != nil && err != utils.ErrNotFound {
+		return err
+	}
+	if err = dm.DataDB().RemoveChargerProfileDrv(tenant, id); err != nil {
+		return
+	}
+	Cache.Remove(utils.CacheChargerProfiles, utils.ConcatenatedKey(tenant, id),
+		cacheCommit(transactionID), transactionID)
+	if withIndex {
+		return NewFilterIndexer(dm, utils.ChargerProfilePrefix, tenant).RemoveItemFromIndex(tenant, id, oldCpp.FilterIDs)
 	}
 	return
 }

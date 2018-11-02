@@ -81,6 +81,8 @@ const (
 	CGR_RPC                   = "*cgr_rpc"
 	TopUpZeroNegative         = "*topup_zero_negative"
 	SetExpiry                 = "*set_expiry"
+	MetaPublishAccount        = "*publish_account"
+	MetaPublishBalance        = "*publish_balance"
 )
 
 func (a *Action) Clone() *Action {
@@ -119,6 +121,8 @@ func getActionFunc(typ string) (actionTypeFunc, bool) {
 		CGR_RPC:                   cgrRPCAction,
 		TopUpZeroNegative:         topupZeroNegativeAction,
 		SetExpiry:                 setExpiryAction,
+		MetaPublishAccount:        publishAccount,
+		MetaPublishBalance:        publishBalance,
 	}
 	f, exists := actionFuncMap[typ]
 	return f, exists
@@ -136,84 +140,29 @@ func logAction(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) 
 	return
 }
 
-// Used by cdrLogAction to dynamically parse values out of account and action
-func parseTemplateValue(rsrFlds utils.RSRFields, acnt *Account, action *Action) string {
-	var err error
-	var dta *utils.TenantAccount
-	if acnt != nil {
-		dta, err = utils.NewTAFromAccountKey(acnt.ID) // Account information should be valid
-	}
-	if err != nil || acnt == nil {
-		dta = new(utils.TenantAccount) // Init with empty values
-	}
-	var parsedValue string // Template values
-	b := action.Balance.CreateBalance()
-	for _, rsrFld := range rsrFlds {
-		switch rsrFld.Id {
-		case "AccountID":
-			parsedValue += rsrFld.ParseValue(acnt.ID)
-		case "Directions":
-			parsedValue += rsrFld.ParseValue(b.Directions.String())
-		case utils.Tenant:
-			parsedValue += rsrFld.ParseValue(dta.Tenant)
-		case utils.Account:
-			parsedValue += rsrFld.ParseValue(dta.Account)
-		case "ActionID":
-			parsedValue += rsrFld.ParseValue(action.Id)
-		case "ActionType":
-			parsedValue += rsrFld.ParseValue(action.ActionType)
-		case "ActionValue":
-			parsedValue += rsrFld.ParseValue(strconv.FormatFloat(b.GetValue(), 'f', -1, 64))
-		case "BalanceType":
-			parsedValue += rsrFld.ParseValue(action.Balance.GetType())
-		case "BalanceUUID":
-			parsedValue += rsrFld.ParseValue(b.Uuid)
-		case "BalanceID":
-			parsedValue += rsrFld.ParseValue(b.ID)
-		case "BalanceValue":
-			parsedValue += rsrFld.ParseValue(strconv.FormatFloat(action.balanceValue, 'f', -1, 64))
-		case "DestinationIDs":
-			parsedValue += rsrFld.ParseValue(b.DestinationIDs.String())
-		case "ExtraParameters":
-			parsedValue += rsrFld.ParseValue(action.ExtraParameters)
-		case "RatingSubject":
-			parsedValue += rsrFld.ParseValue(b.RatingSubject)
-		case utils.Category:
-			parsedValue += rsrFld.ParseValue(action.Balance.Categories.String())
-		case "SharedGroups":
-			parsedValue += rsrFld.ParseValue(action.Balance.SharedGroups.String())
-		default:
-			parsedValue += rsrFld.ParseValue("") // Mostly for static values
-		}
-	}
-	return parsedValue
-}
-
 func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) (err error) {
-	defaultTemplate := map[string]utils.RSRFields{
-		utils.TOR:         utils.ParseRSRFieldsMustCompile("BalanceType", utils.INFIELD_SEP),
-		utils.OriginHost:  utils.ParseRSRFieldsMustCompile("^127.0.0.1", utils.INFIELD_SEP),
-		utils.RequestType: utils.ParseRSRFieldsMustCompile("^"+utils.META_PREPAID, utils.INFIELD_SEP),
-		utils.Tenant:      utils.ParseRSRFieldsMustCompile(utils.Tenant, utils.INFIELD_SEP),
-		utils.Account:     utils.ParseRSRFieldsMustCompile(utils.Account, utils.INFIELD_SEP),
-		utils.Subject:     utils.ParseRSRFieldsMustCompile(utils.Account, utils.INFIELD_SEP), //here need to be modify
-		utils.COST:        utils.ParseRSRFieldsMustCompile("ActionValue", utils.INFIELD_SEP),
+	if schedCdrsConns == nil {
+		return fmt.Errorf("No connection with CDR Server")
+	}
+	defaultTemplate := map[string]config.RSRParsers{
+		utils.ToR:         config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+"BalanceType", true),
+		utils.OriginHost:  config.NewRSRParsersMustCompile("127.0.0.1", true),
+		utils.RequestType: config.NewRSRParsersMustCompile(utils.META_PREPAID, true),
+		utils.Tenant:      config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Tenant, true),
+		utils.Account:     config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Account, true),
+		utils.Subject:     config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Account, true),
+		utils.COST:        config.NewRSRParsersMustCompile(utils.DynamicDataPrefix+"ActionValue", true),
 	}
 	template := make(map[string]string)
-
 	// overwrite default template
 	if a.ExtraParameters != "" {
 		if err = json.Unmarshal([]byte(a.ExtraParameters), &template); err != nil {
 			return
 		}
 		for field, rsr := range template {
-			defaultTemplate[field], err = utils.ParseRSRFields(rsr, utils.INFIELD_SEP)
-			if err != nil {
-				return err
-			}
+			defaultTemplate[field] = config.NewRSRParsersMustCompile(rsr, true)
 		}
 	}
-
 	// set stored cdr values
 	var cdrs []*CDR
 	for _, action := range acs {
@@ -221,15 +170,21 @@ func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actio
 			action.Balance == nil {
 			continue // Only log specific actions
 		}
-		cdr := &CDR{RunID: action.ActionType, Source: CDRLOG,
-			SetupTime: time.Now(), AnswerTime: time.Now(), OriginID: utils.GenUUID(),
-			ExtraFields: make(map[string]string)}
+		cdr := &CDR{RunID: action.ActionType,
+			Source:    CDRLOG,
+			SetupTime: time.Now(), AnswerTime: time.Now(),
+			OriginID:    utils.GenUUID(),
+			ExtraFields: make(map[string]string),
+			PreRated:    true}
 		cdr.CGRID = utils.Sha1(cdr.OriginID, cdr.SetupTime.String())
 		cdr.Usage = time.Duration(1)
 		elem := reflect.ValueOf(cdr).Elem()
 		for key, rsrFlds := range defaultTemplate {
-			parsedValue := parseTemplateValue(rsrFlds, acc, action)
+			parsedValue, err := rsrFlds.ParseDataProvider(newCdrLogProvider(acc, action), utils.NestingSep)
 			field := elem.FieldByName(key)
+			if err != nil {
+				return err
+			}
 			if field.IsValid() && field.CanSet() {
 				switch field.Kind() {
 				case reflect.Float64:
@@ -246,10 +201,9 @@ func cdrLogAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actio
 			}
 		}
 		cdrs = append(cdrs, cdr)
-		if cdrStorage == nil { // Only save if the cdrStorage is defined
-			continue
-		}
-		if err := cdrStorage.SetCDR(cdr, true); err != nil {
+		var rply string
+		// After compute the CDR send it to CDR Server to be processed
+		if err := schedCdrsConns.Call(utils.CdrsV2ProcessCDR, cdr.AsCGREvent(), &rply); err != nil {
 			return err
 		}
 	}
@@ -399,7 +353,7 @@ func disableAccountAction(acc *Account, sq *CDRStatsQueueTriggered, a *Action, a
 }*/
 
 func genericReset(ub *Account) error {
-	for k, _ := range ub.BalanceMap {
+	for k := range ub.BalanceMap {
 		ub.BalanceMap[k] = Balances{&Balance{Value: 0}}
 	}
 	ub.InitCounters()
@@ -420,12 +374,17 @@ func callUrl(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) er
 		return err
 	}
 	cfg := config.CgrConfig()
-	ffn := &utils.FallbackFileName{Module: fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
-		Transport: utils.MetaHTTPjson, Address: a.ExtraParameters,
-		RequestID: utils.GenUUID(), FileSuffix: utils.JSNSuffix}
-	_, err = utils.NewHTTPPoster(config.CgrConfig().HttpSkipTlsVerify,
-		config.CgrConfig().ReplyTimeout).Post(a.ExtraParameters, utils.CONTENT_JSON, jsn,
-		config.CgrConfig().PosterAttempts, path.Join(cfg.FailedPostsDir, ffn.AsString()))
+	ffn := &utils.FallbackFileName{
+		Module:     fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
+		Transport:  utils.MetaHTTPjson,
+		Address:    a.ExtraParameters,
+		RequestID:  utils.GenUUID(),
+		FileSuffix: utils.JSNSuffix,
+	}
+	_, err = NewHTTPPoster(config.CgrConfig().GeneralCfg().HttpSkipTlsVerify,
+		config.CgrConfig().GeneralCfg().ReplyTimeout).Post(a.ExtraParameters,
+		utils.CONTENT_JSON, jsn, config.CgrConfig().GeneralCfg().PosterAttempts,
+		path.Join(cfg.GeneralCfg().FailedPostsDir, ffn.AsString()))
 	return err
 }
 
@@ -443,12 +402,17 @@ func callUrlAsync(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Action
 		return err
 	}
 	cfg := config.CgrConfig()
-	ffn := &utils.FallbackFileName{Module: fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
-		Transport: utils.MetaHTTPjson, Address: a.ExtraParameters,
-		RequestID: utils.GenUUID(), FileSuffix: utils.JSNSuffix}
-	go utils.NewHTTPPoster(config.CgrConfig().HttpSkipTlsVerify,
-		config.CgrConfig().ReplyTimeout).Post(a.ExtraParameters, utils.CONTENT_JSON, jsn,
-		config.CgrConfig().PosterAttempts, path.Join(cfg.FailedPostsDir, ffn.AsString()))
+	ffn := &utils.FallbackFileName{
+		Module:     fmt.Sprintf("%s>%s", utils.ActionsPoster, a.ActionType),
+		Transport:  utils.MetaHTTPjson,
+		Address:    a.ExtraParameters,
+		RequestID:  utils.GenUUID(),
+		FileSuffix: utils.JSNSuffix,
+	}
+	go NewHTTPPoster(config.CgrConfig().GeneralCfg().HttpSkipTlsVerify,
+		config.CgrConfig().GeneralCfg().ReplyTimeout).Post(a.ExtraParameters,
+		utils.CONTENT_JSON, jsn, config.CgrConfig().GeneralCfg().PosterAttempts,
+		path.Join(cfg.GeneralCfg().FailedPostsDir, ffn.AsString()))
 	return nil
 }
 
@@ -478,10 +442,10 @@ func mailAsync(ub *Account, sq *CDRStatsQueueTriggered, a *Action, acs Actions) 
 		message = []byte(fmt.Sprintf("To: %s\r\nSubject: [CGR Notification] Threshold hit on CDRStatsQueueId: %s\r\n\r\nTime: \r\n\t%s\r\n\r\nCDRStatsQueueId:\r\n\t%s\r\n\r\nMetrics:\r\n\t%+v\r\n\r\nTrigger:\r\n\t%+v\r\n\r\nYours faithfully,\r\nCGR CDR Stats Monitor\r\n",
 			toAddrStr, sq.Id, time.Now(), sq.Id, sq.Metrics, sq.Trigger))
 	}
-	auth := smtp.PlainAuth("", cgrCfg.MailerAuthUser, cgrCfg.MailerAuthPass, strings.Split(cgrCfg.MailerServer, ":")[0]) // We only need host part, so ignore port
+	auth := smtp.PlainAuth("", cgrCfg.MailerCfg().MailerAuthUser, cgrCfg.MailerCfg().MailerAuthPass, strings.Split(cgrCfg.MailerCfg().MailerServer, ":")[0]) // We only need host part, so ignore port
 	go func() {
 		for i := 0; i < 5; i++ { // Loop so we can increase the success rate on best effort
-			if err := smtp.SendMail(cgrCfg.MailerServer, auth, cgrCfg.MailerFromAddr, toAddrs, message); err == nil {
+			if err := smtp.SendMail(cgrCfg.MailerCfg().MailerServer, auth, cgrCfg.MailerCfg().MailerFromAddr, toAddrs, message); err == nil {
 				break
 			} else if i == 4 {
 				if ub != nil {
@@ -718,8 +682,10 @@ func cgrRPCAction(account *Account, sq *CDRStatsQueueTriggered, a *Action, acs A
 	}
 	var client rpcclient.RpcClientConnection
 	if req.Address != utils.MetaInternal {
-		if client, err = rpcclient.NewRpcClient("tcp", req.Address, req.Attempts, 0,
-			config.CgrConfig().ConnectTimeout, config.CgrConfig().ReplyTimeout, req.Transport, nil, false); err != nil {
+		if client, err = rpcclient.NewRpcClient("tcp", req.Address, false, "", "", "",
+			req.Attempts, 0, config.CgrConfig().GeneralCfg().ConnectTimeout,
+			config.CgrConfig().GeneralCfg().ReplyTimeout, req.Transport,
+			nil, false); err != nil {
 			return err
 		}
 	} else {
@@ -773,6 +739,41 @@ func setExpiryAction(account *Account, sq *CDRStatsQueueTriggered, a *Action, ac
 	return nil
 }
 
+// publishAccount will publish the account as well as each balance received to ThresholdS
+func publishAccount(acnt *Account, sq *CDRStatsQueueTriggered,
+	a *Action, acs Actions) error {
+	if acnt == nil {
+		return errors.New("nil account")
+	}
+	acnt.Publish()
+	for bType := range acnt.BalanceMap {
+		for _, b := range acnt.BalanceMap[bType] {
+			if b.account == nil {
+				b.account = acnt
+			}
+			b.Publish()
+		}
+	}
+	return nil
+}
+
+// publishAccount will publish the account as well as each balance received to ThresholdS
+func publishBalance(acnt *Account, sq *CDRStatsQueueTriggered,
+	a *Action, acs Actions) error {
+	if acnt == nil {
+		return errors.New("nil account")
+	}
+	for bType := range acnt.BalanceMap {
+		for _, b := range acnt.BalanceMap[bType] {
+			if b.account == nil {
+				b.account = acnt
+			}
+			b.Publish()
+		}
+	}
+	return nil
+}
+
 // Structure to store actions according to weight
 type Actions []*Action
 
@@ -809,4 +810,98 @@ func (apl Actions) Clone() (interface{}, error) {
 		}
 	}
 	return cln, nil
+}
+
+// newCdrLogProvider constructs a DataProvider
+func newCdrLogProvider(acnt *Account, action *Action) (dP config.DataProvider) {
+	dP = &cdrLogProvider{acnt: acnt, action: action, cache: config.NewNavigableMap(nil)}
+	return
+}
+
+// cdrLogProvider implements engine.DataProvider so we can pass it to filters
+type cdrLogProvider struct {
+	acnt   *Account
+	action *Action
+	cache  *config.NavigableMap
+}
+
+// String is part of engine.DataProvider interface
+// when called, it will display the already parsed values out of cache
+func (cdrP *cdrLogProvider) String() string {
+	return utils.ToJSON(cdrP)
+}
+
+// FieldAsInterface is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) FieldAsInterface(fldPath []string) (data interface{}, err error) {
+	if len(fldPath) != 1 {
+		return nil, utils.ErrNotFound
+	}
+	if data, err = cdrP.cache.FieldAsInterface(fldPath); err == nil ||
+		err != utils.ErrNotFound { // item found in cache
+		return
+	}
+	err = nil // cancel previous err
+	var dta *utils.TenantAccount
+	if cdrP.acnt != nil {
+		dta, err = utils.NewTAFromAccountKey(cdrP.acnt.ID) // Account information should be valid
+	}
+	if err != nil || cdrP.acnt == nil {
+		dta = new(utils.TenantAccount) // Init with empty values
+	}
+	b := cdrP.action.Balance.CreateBalance()
+	switch fldPath[0] {
+	case "AccountID":
+		data = cdrP.acnt.ID
+	case "Directions":
+		data = b.Directions.String()
+	case utils.Tenant:
+		data = dta.Tenant
+	case utils.Account:
+		data = dta.Account
+	case "ActionID":
+		data = cdrP.action.Id
+	case "ActionType":
+		data = cdrP.action.ActionType
+	case "ActionValue":
+		data = strconv.FormatFloat(b.GetValue(), 'f', -1, 64)
+	case "BalanceType":
+		data = cdrP.action.Balance.GetType()
+	case "BalanceUUID":
+		data = b.Uuid
+	case "BalanceID":
+		data = b.ID
+	case "BalanceValue":
+		data = strconv.FormatFloat(cdrP.action.balanceValue, 'f', -1, 64)
+	case "DestinationIDs":
+		data = b.DestinationIDs.String()
+	case "ExtraParameters":
+		data = cdrP.action.ExtraParameters
+	case "RatingSubject":
+		data = b.RatingSubject
+	case utils.Category:
+		data = cdrP.action.Balance.Categories.String()
+	case "SharedGroups":
+		data = cdrP.action.Balance.SharedGroups.String()
+	default:
+		data = fldPath[0]
+	}
+	cdrP.cache.Set(fldPath, data, false)
+	return
+}
+
+// FieldAsString is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) FieldAsString(fldPath []string) (data string, err error) {
+	var valIface interface{}
+	valIface, err = cdrP.FieldAsInterface(fldPath)
+	if err != nil {
+		return
+	}
+	data, err = utils.IfaceAsString(valIface)
+	return
+}
+
+// AsNavigableMap is part of engine.DataProvider interface
+func (cdrP *cdrLogProvider) AsNavigableMap([]*config.FCTemplate) (
+	nm *config.NavigableMap, err error) {
+	return nil, utils.ErrNotImplemented
 }

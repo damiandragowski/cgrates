@@ -19,6 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package console
 
 import (
+	"time"
+
+	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/utils"
 )
@@ -26,8 +29,8 @@ import (
 func init() {
 	c := &CmdGetResourceForEvent{
 		name:      "resources_for_event",
-		rpcMethod: "ResourceSv1.GetResourcesForEvent",
-		rpcParams: &utils.ArgRSv1ResourceUsage{},
+		rpcMethod: utils.ResourceSv1GetResourcesForEvent,
+		rpcParams: &dispatchers.ArgsV1ResUsageWithApiKey{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -37,7 +40,7 @@ func init() {
 type CmdGetResourceForEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.ArgRSv1ResourceUsage
+	rpcParams *dispatchers.ArgsV1ResUsageWithApiKey
 	*CommandExecuter
 }
 
@@ -51,12 +54,15 @@ func (self *CmdGetResourceForEvent) RpcMethod() string {
 
 func (self *CmdGetResourceForEvent) RpcParams(reset bool) interface{} {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.ArgRSv1ResourceUsage{}
+		self.rpcParams = &dispatchers.ArgsV1ResUsageWithApiKey{}
 	}
 	return self.rpcParams
 }
 
 func (self *CmdGetResourceForEvent) PostprocessRpcParams() error {
+	if self.rpcParams.CGREvent.Time == nil {
+		self.rpcParams.CGREvent.Time = utils.TimePointer(time.Now())
+	}
 	return nil
 }
 

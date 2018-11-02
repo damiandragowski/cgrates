@@ -18,7 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1468,92 +1467,6 @@ func TestTopupActionLoaded(t *testing.T) {
 	}
 }
 
-func TestActionCdrlogEmpty(t *testing.T) {
-	acnt := &Account{ID: "cgrates.org:dan2904"}
-	cdrlog := &Action{
-		ActionType: CDRLOG,
-	}
-	err := cdrLogAction(acnt, nil, cdrlog, Actions{
-		&Action{
-			ActionType: DEBIT,
-			Balance: &BalanceFilter{Value: &utils.ValueFormula{Static: 25},
-				DestinationIDs: utils.StringMapPointer(utils.NewStringMap("RET")), Weight: utils.Float64Pointer(20)},
-		},
-	})
-	if err != nil {
-		t.Error("Error performing cdrlog action: ", err)
-	}
-	cdrs := make([]*CDR, 0)
-	json.Unmarshal([]byte(cdrlog.ExpirationString), &cdrs)
-	if len(cdrs) != 1 || cdrs[0].Source != CDRLOG {
-		t.Errorf("Wrong cdrlogs: %+v", cdrs[0])
-	}
-}
-
-func TestActionCdrlogWithParams(t *testing.T) {
-	acnt := &Account{ID: "cgrates.org:dan2904"}
-	cdrlog := &Action{
-		ActionType:      CDRLOG,
-		ExtraParameters: `{"ReqType":"^*pseudoprepaid","Subject":"^rif", "TOR":"~action_type:s/^\\*(.*)$/did_$1/"}`,
-	}
-	err := cdrLogAction(acnt, nil, cdrlog, Actions{
-		&Action{
-			ActionType: DEBIT,
-			Balance: &BalanceFilter{Value: &utils.ValueFormula{Static: 25},
-				DestinationIDs: utils.StringMapPointer(utils.NewStringMap("RET")), Weight: utils.Float64Pointer(20)},
-		},
-		&Action{
-			ActionType: DEBIT_RESET,
-			Balance: &BalanceFilter{Value: &utils.ValueFormula{Static: 25},
-				DestinationIDs: utils.StringMapPointer(utils.NewStringMap("RET")), Weight: utils.Float64Pointer(20)},
-		},
-	})
-	if err != nil {
-		t.Error("Error performing cdrlog action: ", err)
-	}
-	cdrs := make([]*CDR, 0)
-	json.Unmarshal([]byte(cdrlog.ExpirationString), &cdrs)
-	if len(cdrs) != 2 ||
-		cdrs[0].Subject != "rif" {
-		t.Errorf("Wrong cdrlogs: %+v", cdrs[0])
-	}
-}
-
-func TestActionCdrLogParamsWithOverload(t *testing.T) {
-	acnt := &Account{ID: "cgrates.org:dan2904"}
-	cdrlog := &Action{
-		ActionType:      CDRLOG,
-		ExtraParameters: `{"Subject":"^rif","Destination":"^1234","ToR":"~ActionTag:s/^at(.)$/0$1/","AccountID":"~AccountID:s/^\\*(.*)$/$1/"}`,
-	}
-	err := cdrLogAction(acnt, nil, cdrlog, Actions{
-		&Action{
-			ActionType: DEBIT,
-			Balance: &BalanceFilter{Value: &utils.ValueFormula{Static: 25},
-				DestinationIDs: utils.StringMapPointer(utils.NewStringMap("RET")), Weight: utils.Float64Pointer(20)},
-		},
-		&Action{
-			ActionType: DEBIT_RESET,
-			Balance: &BalanceFilter{Value: &utils.ValueFormula{Static: 25},
-				DestinationIDs: utils.StringMapPointer(utils.NewStringMap("RET")), Weight: utils.Float64Pointer(20)},
-		},
-	})
-	if err != nil {
-		t.Error("Error performing cdrlog action: ", err)
-	}
-	cdrs := make([]*CDR, 0)
-	json.Unmarshal([]byte(cdrlog.ExpirationString), &cdrs)
-	expectedExtraFields := map[string]string{
-		"AccountID": "cgrates.org:dan2904",
-	}
-	if len(cdrs) != 2 ||
-		cdrs[0].Subject != "rif" {
-		t.Errorf("Wrong cdrlogs: %+v", cdrs[0])
-	}
-	if !reflect.DeepEqual(cdrs[0].ExtraFields, expectedExtraFields) {
-		t.Errorf("Expecting extra fields: %+v, received: %+v", expectedExtraFields, cdrs[0].ExtraFields)
-	}
-}
-
 func TestActionSetDDestination(t *testing.T) {
 	acc := &Account{BalanceMap: map[string]Balances{
 		utils.MONETARY: Balances{&Balance{DestinationIDs: utils.NewStringMap("*ddc_test")}}}}
@@ -2390,68 +2303,6 @@ func TestActionExpNoExp(t *testing.T) {
 	}
 }
 
-func TestActionCdrlogBalanceValue(t *testing.T) {
-	err := dm.DataDB().SetAccount(&Account{
-		ID: "cgrates.org:bv",
-		BalanceMap: map[string]Balances{
-			utils.MONETARY: Balances{&Balance{
-				ID:    "*default",
-				Uuid:  "25a02c82-f09f-4c6e-bacf-8ed4b076475a",
-				Value: 10,
-			}},
-		},
-	})
-	if err != nil {
-		t.Error("Error setting account: ", err)
-	}
-	at := &ActionTiming{
-		accountIDs: utils.StringMap{"cgrates.org:bv": true},
-		Timing:     &RateInterval{},
-		actions: []*Action{
-			&Action{
-				Id:         "RECUR_FOR_V3HSILLMILLD1G",
-				ActionType: TOPUP,
-				Balance: &BalanceFilter{
-					ID:    utils.StringPointer("*default"),
-					Uuid:  utils.StringPointer("25a02c82-f09f-4c6e-bacf-8ed4b076475a"),
-					Value: &utils.ValueFormula{Static: 1.1},
-					Type:  utils.StringPointer(utils.MONETARY),
-				},
-			},
-			&Action{
-				Id:         "RECUR_FOR_V3HSILLMILLD5G",
-				ActionType: DEBIT,
-				Balance: &BalanceFilter{
-					ID:    utils.StringPointer("*default"),
-					Uuid:  utils.StringPointer("25a02c82-f09f-4c6e-bacf-8ed4b076475a"),
-					Value: &utils.ValueFormula{Static: 2.1},
-					Type:  utils.StringPointer(utils.MONETARY),
-				},
-			},
-			&Action{
-				Id:              "c",
-				ActionType:      CDRLOG,
-				ExtraParameters: `{"BalanceID":"BalanceID","BalanceUUID":"BalanceUUID","ActionID":"ActionID","BalanceValue":"BalanceValue"}`,
-			},
-		},
-	}
-	err = at.Execute(nil, nil)
-	acc, err := dm.DataDB().GetAccount("cgrates.org:bv")
-	if err != nil || acc == nil {
-		t.Error("Error getting account: ", acc, err)
-	}
-	if acc.BalanceMap[utils.MONETARY][0].Value != 9 {
-		t.Errorf("Transaction didn't work: %v", acc.BalanceMap[utils.MONETARY][0].Value)
-	}
-	cdrs := make([]*CDR, 0)
-	json.Unmarshal([]byte(at.actions[2].ExpirationString), &cdrs)
-	if len(cdrs) != 2 ||
-		cdrs[0].ExtraFields["BalanceValue"] != "11.1" ||
-		cdrs[1].ExtraFields["BalanceValue"] != "9" {
-		t.Errorf("Wrong cdrlogs: %s", utils.ToIJSON(cdrs))
-	}
-}
-
 func TestActionTopUpZeroNegative(t *testing.T) {
 	account := &Account{
 		ID: "cgrates.org:zeroNegative",
@@ -2547,7 +2398,7 @@ func TestActionSetExpiry(t *testing.T) {
 		t.Error("Error getting account: ", acc, err)
 	}
 	//Verify ExpirationDate for first balance(Bal1)
-	if acc.BalanceMap[utils.MONETARY][0].ExpirationDate != cloneTimeNowPlus24h {
+	if !acc.BalanceMap[utils.MONETARY][0].ExpirationDate.Equal(cloneTimeNowPlus24h) {
 		t.Errorf("Expecting: %+v, received: %+v", cloneTimeNowPlus24h, acc.BalanceMap[utils.MONETARY][0].ExpirationDate)
 	}
 }

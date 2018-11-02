@@ -26,14 +26,18 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cgrates/cgrates/agents"
+	"github.com/cgrates/cgrates/analyzers"
 	"github.com/cgrates/cgrates/apier/v1"
 	"github.com/cgrates/cgrates/apier/v2"
 	"github.com/cgrates/cgrates/cdrc"
 	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/loaders"
 	"github.com/cgrates/cgrates/scheduler"
 	"github.com/cgrates/cgrates/servmanager"
 	"github.com/cgrates/cgrates/sessions"
@@ -69,7 +73,10 @@ var (
 	cfg *config.CGRConfig
 )
 
-func startCdrcs(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConnection, exitChan chan bool) {
+func startCdrcs(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConnection,
+	exitChan chan bool, filterSChan chan *engine.FilterS) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
 	cdrcInitialized := false           // Control whether the cdrc was already initialized (so we don't reload in that case)
 	var cdrcChildrenChan chan struct{} // Will use it to communicate with the children of one fork
 	for {
@@ -85,15 +92,16 @@ func startCdrcs(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConn
 		}
 		// Start CDRCs
 		for _, cdrcCfgs := range cfg.CdrcProfiles {
-			var enabledCfgs []*config.CdrcConfig
+			var enabledCfgs []*config.CdrcCfg
 			for _, cdrcCfg := range cdrcCfgs { // Take a random config out since they should be the same
 				if cdrcCfg.Enabled {
 					enabledCfgs = append(enabledCfgs, cdrcCfg)
 				}
 			}
-
 			if len(enabledCfgs) != 0 {
-				go startCdrc(internalCdrSChan, internalRaterChan, enabledCfgs, cfg.HttpSkipTlsVerify, cdrcChildrenChan, exitChan)
+				go startCdrc(internalCdrSChan, internalRaterChan, enabledCfgs,
+					cfg.GeneralCfg().HttpSkipTlsVerify, cdrcChildrenChan,
+					exitChan, filterSChan)
 			} else {
 				utils.Logger.Info("<CDRC> No enabled CDRC clients")
 			}
@@ -103,20 +111,27 @@ func startCdrcs(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConn
 }
 
 // Fires up a cdrc instance
-func startCdrc(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConnection, cdrcCfgs []*config.CdrcConfig, httpSkipTlsCheck bool,
-	closeChan chan struct{}, exitChan chan bool) {
-	var cdrcCfg *config.CdrcConfig
+func startCdrc(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConnection, cdrcCfgs []*config.CdrcCfg, httpSkipTlsCheck bool,
+	closeChan chan struct{}, exitChan chan bool, filterSChan chan *engine.FilterS) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
+	var cdrcCfg *config.CdrcCfg
 	for _, cdrcCfg = range cdrcCfgs { // Take the first config out, does not matter which one
 		break
 	}
-	cdrsConn, err := engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-		cdrcCfg.CdrsConns, internalCdrSChan, cfg.InternalTtl)
+	cdrsConn, err := engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.TlsCfg().ClientKey,
+		cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+		cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+		cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+		cdrcCfg.CdrsConns, internalCdrSChan, cfg.GeneralCfg().InternalTtl)
 	if err != nil {
 		utils.Logger.Crit(fmt.Sprintf("<CDRC> Could not connect to CDRS via RPC: %s", err.Error()))
 		exitChan <- true
 		return
 	}
-	cdrc, err := cdrc.NewCdrc(cdrcCfgs, httpSkipTlsCheck, cdrsConn, closeChan, cfg.DefaultTimezone, cfg.RoundingDecimals)
+	cdrc, err := cdrc.NewCdrc(cdrcCfgs, httpSkipTlsCheck, cdrsConn, closeChan,
+		cfg.GeneralCfg().DefaultTimezone, cfg.GeneralCfg().RoundingDecimals,
+		filterS)
 	if err != nil {
 		utils.Logger.Crit(fmt.Sprintf("Cdrc config parsing error: %s", err.Error()))
 		exitChan <- true
@@ -131,83 +146,140 @@ func startCdrc(internalCdrSChan, internalRaterChan chan rpcclient.RpcClientConne
 
 func startSessionS(internalSMGChan, internalRaterChan, internalResourceSChan, internalThresholdSChan,
 	internalStatSChan, internalSupplierSChan, internalAttrSChan,
-	internalCDRSChan chan rpcclient.RpcClientConnection, server *utils.Server, exitChan chan bool) {
+	internalCDRSChan, internalChargerSChan chan rpcclient.RpcClientConnection, server *utils.Server, exitChan chan bool) {
 	utils.Logger.Info("Starting CGRateS Session service.")
 	var err error
-	var ralsConns, resSConns, threshSConns, statSConns, suplSConns, attrSConns, cdrsConn *rpcclient.RpcClientPool
+	var ralsConns, resSConns, threshSConns, statSConns, suplSConns, attrSConns, cdrsConn, chargerSConn *rpcclient.RpcClientPool
+	if len(cfg.SessionSCfg().ChargerSConns) != 0 {
+		chargerSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey, cfg.TlsCfg().ClientCerificate,
+			cfg.TlsCfg().CaCertificate, cfg.GeneralCfg().ConnectAttempts,
+			cfg.GeneralCfg().Reconnects, cfg.GeneralCfg().ConnectTimeout,
+			cfg.GeneralCfg().ReplyTimeout, cfg.SessionSCfg().ChargerSConns,
+			internalChargerSChan, cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to %s: %s",
+				utils.SessionS, utils.ChargerS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
 	if len(cfg.SessionSCfg().RALsConns) != 0 {
 		ralsConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
-			cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().RALsConns, internalRaterChan, cfg.InternalTtl)
+			cfg.TlsCfg().ClientKey, cfg.TlsCfg().ClientCerificate,
+			cfg.TlsCfg().CaCertificate, cfg.GeneralCfg().ConnectAttempts,
+			cfg.GeneralCfg().Reconnects, cfg.GeneralCfg().ConnectTimeout,
+			cfg.GeneralCfg().ReplyTimeout, cfg.SessionSCfg().RALsConns,
+			internalRaterChan, cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to RALs: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to RALs: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SessionSCfg().ResSConns) != 0 {
 		resSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
-			cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().ResSConns, internalResourceSChan, cfg.InternalTtl)
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SessionSCfg().ResSConns, internalResourceSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ResourceS: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ResourceS: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SessionSCfg().ThreshSConns) != 0 {
-		threshSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().ThreshSConns, internalThresholdSChan, cfg.InternalTtl)
+		threshSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SessionSCfg().ThreshSConns, internalThresholdSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ThresholdS: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ThresholdS: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SessionSCfg().StatSConns) != 0 {
-		statSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().StatSConns, internalStatSChan, cfg.InternalTtl)
+		statSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SessionSCfg().StatSConns, internalStatSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to StatS: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to StatS: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SessionSCfg().SupplSConns) != 0 {
-		suplSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().SupplSConns, internalSupplierSChan, cfg.InternalTtl)
+		suplSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SessionSCfg().SupplSConns, internalSupplierSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to SupplierS: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to SupplierS: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SessionSCfg().AttrSConns) != 0 {
-		attrSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().AttrSConns, internalAttrSChan, cfg.InternalTtl)
+		attrSConns, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SessionSCfg().AttrSConns, internalAttrSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to AttributeS: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to AttributeS: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SessionSCfg().CDRsConns) != 0 {
-		cdrsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.SessionSCfg().CDRsConns, internalCDRSChan, cfg.InternalTtl)
+		cdrsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SessionSCfg().CDRsConns, internalCDRSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to RALs: %s", utils.SessionS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to RALs: %s",
+				utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	smgReplConns, err := sessions.NewSessionReplicationConns(cfg.SessionSCfg().SessionReplicationConns, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout)
+	smgReplConns, err := sessions.NewSessionReplicationConns(cfg.SessionSCfg().SessionReplicationConns,
+		cfg.GeneralCfg().Reconnects, cfg.GeneralCfg().ConnectTimeout,
+		cfg.GeneralCfg().ReplyTimeout)
 	if err != nil {
-		utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to SMGReplicationConnection error: <%s>", utils.SessionS, err.Error()))
+		utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to SMGReplicationConnection error: <%s>",
+			utils.SessionS, err.Error()))
 		exitChan <- true
 		return
 	}
-	sm := sessions.NewSMGeneric(cfg, ralsConns, resSConns, threshSConns, statSConns,
-		suplSConns, attrSConns, cdrsConn, smgReplConns, cfg.DefaultTimezone)
+	sm := sessions.NewSMGeneric(cfg, ralsConns, resSConns, threshSConns,
+		statSConns, suplSConns, attrSConns, cdrsConn, chargerSConn,
+		smgReplConns, cfg.GeneralCfg().DefaultTimezone)
 	if err = sm.Connect(); err != nil {
 		utils.Logger.Err(fmt.Sprintf("<%s> error: %s!", utils.SessionS, err))
 	}
@@ -228,7 +300,7 @@ func startSessionS(internalSMGChan, internalRaterChan, internalResourceSChan, in
 		for method, handler := range ssv1.Handlers() {
 			server.BiRPCRegisterName(method, handler)
 		}
-		server.ServeBiJSON(cfg.SessionSCfg().ListenBijson)
+		server.ServeBiJSON(cfg.SessionSCfg().ListenBijson, sm.OnBiJSONConnect, sm.OnBiJSONDisconnect)
 		exitChan <- true
 	}
 }
@@ -239,7 +311,7 @@ func startAsteriskAgent(internalSMGChan chan rpcclient.RpcClientConnection, exit
 	internalSMGChan <- smgRpcConn
 	birpcClnt := utils.NewBiRPCInternalClient(smgRpcConn.(*sessions.SMGeneric))
 	for connIdx := range cfg.AsteriskAgentCfg().AsteriskConns { // Instantiate connections towards asterisk servers
-		sma, err := agents.NewSMAsterisk(cfg, connIdx, birpcClnt)
+		sma, err := agents.NewAsteriskAgent(cfg, connIdx, birpcClnt)
 		if err != nil {
 			utils.Logger.Err(fmt.Sprintf("<SMAsterisk> error: %s!", err))
 			exitChan <- true
@@ -252,29 +324,29 @@ func startAsteriskAgent(internalSMGChan chan rpcclient.RpcClientConnection, exit
 	exitChan <- true
 }
 
-func startDiameterAgent(internalSMGChan, internalPubSubSChan chan rpcclient.RpcClientConnection, exitChan chan bool) {
+func startDiameterAgent(internalSMGChan chan rpcclient.RpcClientConnection,
+	exitChan chan bool, filterSChan chan *engine.FilterS) {
 	var err error
 	utils.Logger.Info("Starting CGRateS DiameterAgent service")
-	var smgConn, pubsubConn *rpcclient.RpcClientPool
+	filterS := <-filterSChan
+	filterSChan <- filterS
+	var smgConn *rpcclient.RpcClientPool
 	if len(cfg.DiameterAgentCfg().SessionSConns) != 0 {
-		smgConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.DiameterAgentCfg().SessionSConns, internalSMGChan, cfg.InternalTtl)
+		smgConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DiameterAgentCfg().SessionSConns, internalSMGChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<DiameterAgent> Could not connect to SMG: %s", err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to %s: %s",
+				utils.DiameterAgent, utils.SessionS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.DiameterAgentCfg().PubSubConns) != 0 {
-		pubsubConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.DiameterAgentCfg().PubSubConns, internalPubSubSChan, cfg.InternalTtl)
-		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<DiameterAgent> Could not connect to PubSubS: %s", err.Error()))
-			exitChan <- true
-			return
-		}
-	}
-	da, err := agents.NewDiameterAgent(cfg, smgConn, pubsubConn)
+	da, err := agents.NewDiameterAgent(cfg, filterS, smgConn)
 	if err != nil {
 		utils.Logger.Err(fmt.Sprintf("<DiameterAgent> error: %s!", err))
 		exitChan <- true
@@ -286,21 +358,28 @@ func startDiameterAgent(internalSMGChan, internalPubSubSChan chan rpcclient.RpcC
 	exitChan <- true
 }
 
-func startRadiusAgent(internalSMGChan chan rpcclient.RpcClientConnection, exitChan chan bool) {
-	var err error
+func startRadiusAgent(internalSMGChan chan rpcclient.RpcClientConnection, exitChan chan bool,
+	filterSChan chan *engine.FilterS) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
 	utils.Logger.Info("Starting CGRateS RadiusAgent service")
+	var err error
 	var smgConn *rpcclient.RpcClientPool
 	if len(cfg.RadiusAgentCfg().SessionSConns) != 0 {
-		smgConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts,
-			cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.RadiusAgentCfg().SessionSConns, internalSMGChan, cfg.InternalTtl)
+		smgConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.RadiusAgentCfg().SessionSConns, internalSMGChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<RadiusAgent> Could not connect to SMG: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	ra, err := agents.NewRadiusAgent(cfg, smgConn)
+	ra, err := agents.NewRadiusAgent(cfg, filterS, smgConn)
 	if err != nil {
 		utils.Logger.Err(fmt.Sprintf("<RadiusAgent> error: <%s>", err.Error()))
 		exitChan <- true
@@ -318,10 +397,15 @@ func startFsAgent(internalSMGChan chan rpcclient.RpcClientConnection, exitChan c
 	smgRpcConn := <-internalSMGChan
 	internalSMGChan <- smgRpcConn
 	birpcClnt := utils.NewBiRPCInternalClient(smgRpcConn.(*sessions.SMGeneric))
-	sm := agents.NewFSsessions(cfg.FsAgentCfg(), birpcClnt, cfg.DefaultTimezone)
+	sm := agents.NewFSsessions(cfg.FsAgentCfg(), birpcClnt, cfg.GeneralCfg().DefaultTimezone)
+	var reply string
+	if err = birpcClnt.Call(utils.SessionSv1RegisterInternalBiJSONConn, "", &reply); err != nil { // for session sync
+		utils.Logger.Err(fmt.Sprintf("<%s> error: %s!", utils.FreeSWITCHAgent, err))
+	}
 	if err = sm.Connect(); err != nil {
 		utils.Logger.Err(fmt.Sprintf("<%s> error: %s!", utils.FreeSWITCHAgent, err))
 	}
+
 	exitChan <- true
 }
 
@@ -331,44 +415,112 @@ func startKamAgent(internalSMGChan chan rpcclient.RpcClientConnection, exitChan 
 	smgRpcConn := <-internalSMGChan
 	internalSMGChan <- smgRpcConn
 	birpcClnt := utils.NewBiRPCInternalClient(smgRpcConn.(*sessions.SMGeneric))
-	ka := agents.NewKamailioAgent(cfg.KamAgentCfg(),
-		birpcClnt, utils.FirstNonEmpty(cfg.KamAgentCfg().Timezone, cfg.DefaultTimezone))
-
+	ka := agents.NewKamailioAgent(cfg.KamAgentCfg(), birpcClnt,
+		utils.FirstNonEmpty(cfg.KamAgentCfg().Timezone, cfg.GeneralCfg().DefaultTimezone))
+	var reply string
+	if err = birpcClnt.Call(utils.SessionSv1RegisterInternalBiJSONConn, "", &reply); err != nil { // for session sync
+		utils.Logger.Err(fmt.Sprintf("<%s> error: %s!", utils.KamailioAgent, err))
+	}
 	if err = ka.Connect(); err != nil {
 		utils.Logger.Err(fmt.Sprintf("<%s> error: %s", utils.KamailioAgent, err))
 	}
 	exitChan <- true
 }
 
+func startHTTPAgent(internalSMGChan chan rpcclient.RpcClientConnection,
+	exitChan chan bool, server *utils.Server,
+	filterSChan chan *engine.FilterS, dfltTenant string) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
+	utils.Logger.Info("Starting HTTP agent")
+	var err error
+	for _, agntCfg := range cfg.HttpAgentCfg() {
+		var sSConn *rpcclient.RpcClientPool
+		if len(agntCfg.SessionSConns) != 0 {
+			sSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+				cfg.TlsCfg().ClientKey,
+				cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+				cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+				cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+				agntCfg.SessionSConns, internalSMGChan,
+				cfg.GeneralCfg().InternalTtl)
+			if err != nil {
+				utils.Logger.Crit(fmt.Sprintf("<%s> could not connect to %s, error: %s",
+					utils.HTTPAgent, utils.SessionS, err.Error()))
+				exitChan <- true
+				return
+			}
+		}
+		server.RegisterHttpHandler(agntCfg.Url,
+			agents.NewHTTPAgent(sSConn, filterS, dfltTenant, agntCfg.RequestPayload,
+				agntCfg.ReplyPayload, agntCfg.RequestProcessors))
+	}
+}
+
 func startCDRS(internalCdrSChan chan rpcclient.RpcClientConnection,
 	cdrDb engine.CdrStorage, dm *engine.DataManager,
-	internalRaterChan, internalPubSubSChan, internalAttributeSChan, internalUserSChan, internalAliaseSChan,
-	internalCdrStatSChan, internalThresholdSChan, internalStatSChan chan rpcclient.RpcClientConnection,
-	server *utils.Server, exitChan chan bool) {
+	internalRaterChan, internalPubSubSChan, internalAttributeSChan,
+	internalUserSChan, internalAliaseSChan,
+	internalCdrStatSChan, internalThresholdSChan, internalStatSChan,
+	internalChargerSChan chan rpcclient.RpcClientConnection,
+	server *utils.Server, exitChan chan bool, filterSChan chan *engine.FilterS) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
 	var err error
 	utils.Logger.Info("Starting CGRateS CDRS service.")
-	var ralConn, pubSubConn, usersConn, attrSConn, aliasesConn, cdrstatsConn, thresholdSConn, statsConn *rpcclient.RpcClientPool
-	if len(cfg.CDRSRaterConns) != 0 { // Conn pool towards RAL
-		ralConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSRaterConns, internalRaterChan, cfg.InternalTtl)
+	var ralConn, pubSubConn, usersConn, attrSConn, aliasesConn, cdrstatsConn,
+		thresholdSConn, statsConn, chargerSConn *rpcclient.RpcClientPool
+	if len(cfg.CdrsCfg().CDRSChargerSConns) != 0 { // Conn pool towards RAL
+		chargerSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSChargerSConns, internalChargerSChan,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to %s: %s",
+				utils.ChargerS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.CdrsCfg().CDRSRaterConns) != 0 { // Conn pool towards RAL
+		ralConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSRaterConns, internalRaterChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to RAL: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.CDRSPubSubSConns) != 0 { // Pubsub connection init
-		pubSubConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSPubSubSConns, internalPubSubSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSPubSubSConns) != 0 { // Pubsub connection init
+		pubSubConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSPubSubSConns, internalPubSubSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to PubSubSystem: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.CDRSAttributeSConns) != 0 { // Users connection init
-		attrSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSAttributeSConns, internalAttributeSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSAttributeSConns) != 0 { // Users connection init
+		attrSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSAttributeSConns, internalAttributeSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to %s: %s",
 				utils.AttributeS, err.Error()))
@@ -376,45 +528,70 @@ func startCDRS(internalCdrSChan chan rpcclient.RpcClientConnection,
 			return
 		}
 	}
-	if len(cfg.CDRSUserSConns) != 0 { // Users connection init
-		usersConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSUserSConns, internalUserSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSUserSConns) != 0 { // Users connection init
+		usersConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSUserSConns, internalUserSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to UserS: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.CDRSAliaseSConns) != 0 { // Aliases connection init
-		aliasesConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSAliaseSConns, internalAliaseSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSAliaseSConns) != 0 { // Aliases connection init
+		aliasesConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSAliaseSConns, internalAliaseSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to AliaseS: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.CDRSCDRStatSConns) != 0 { // Stats connection init
-		cdrstatsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSCDRStatSConns, internalCdrStatSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSCDRStatSConns) != 0 { // Stats connection init
+		cdrstatsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSCDRStatSConns, internalCdrStatSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to CDRStatS: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.CDRSThresholdSConns) != 0 { // Stats connection init
-		thresholdSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSThresholdSConns, internalThresholdSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSThresholdSConns) != 0 { // Stats connection init
+		thresholdSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSThresholdSConns, internalThresholdSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to ThresholdS: %s", err.Error()))
 			exitChan <- true
 			return
 		}
 	}
-	if len(cfg.CDRSStatSConns) != 0 { // Stats connection init
-		statsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.CDRSStatSConns, internalStatSChan, cfg.InternalTtl)
+	if len(cfg.CdrsCfg().CDRSStatSConns) != 0 { // Stats connection init
+		statsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.CdrsCfg().CDRSStatSConns, internalStatSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<CDRS> Could not connect to StatS: %s", err.Error()))
 			exitChan <- true
@@ -422,8 +599,9 @@ func startCDRS(internalCdrSChan chan rpcclient.RpcClientConnection,
 		}
 	}
 	cdrServer, _ := engine.NewCdrServer(cfg, cdrDb, dm, ralConn, pubSubConn,
-		attrSConn, usersConn, aliasesConn, cdrstatsConn, thresholdSConn, statsConn)
-	cdrServer.SetTimeToLive(cfg.ResponseCacheTTL, nil)
+		attrSConn, usersConn, aliasesConn, cdrstatsConn,
+		thresholdSConn, statsConn, chargerSConn, filterS)
+	cdrServer.SetTimeToLive(cfg.GeneralCfg().ResponseCacheTTL, nil)
 	utils.Logger.Info("Registering CDRS HTTP Handlers.")
 	cdrServer.RegisterHandlersToServer(server)
 	utils.Logger.Info("Registering CDRS RPC service.")
@@ -448,14 +626,14 @@ func startScheduler(internalSchedulerChan chan *scheduler.Scheduler, cacheDoneCh
 }
 
 func startCdrStats(internalCdrStatSChan chan rpcclient.RpcClientConnection, dm *engine.DataManager, server *utils.Server) {
-	cdrStats := engine.NewStats(dm, cfg.CDRStatsSaveInterval)
+	cdrStats := engine.NewStats(dm, cfg.CdrStatsCfg().CDRStatsSaveInterval)
 	server.RpcRegister(cdrStats)
 	server.RpcRegister(&v1.CDRStatsV1{CdrStats: cdrStats}) // Public APIs
 	internalCdrStatSChan <- cdrStats
 }
 
 func startPubSubServer(internalPubSubSChan chan rpcclient.RpcClientConnection, dm *engine.DataManager, server *utils.Server, exitChan chan bool) {
-	pubSubServer, err := engine.NewPubSub(dm, cfg.HttpSkipTlsVerify)
+	pubSubServer, err := engine.NewPubSub(dm, cfg.GeneralCfg().HttpSkipTlsVerify)
 	if err != nil {
 		utils.Logger.Crit(fmt.Sprintf("<PubSubS> Could not start, error: %s", err.Error()))
 		exitChan <- true
@@ -469,12 +647,13 @@ func startPubSubServer(internalPubSubSChan chan rpcclient.RpcClientConnection, d
 func startAliasesServer(internalAliaseSChan chan rpcclient.RpcClientConnection, dm *engine.DataManager, server *utils.Server, exitChan chan bool) {
 	aliasesServer := engine.NewAliasHandler(dm)
 	server.RpcRegisterName("AliasesV1", aliasesServer)
-	loadHist, err := dm.DataDB().GetLoadHistory(1, true, utils.NonTransactional)
+	/*loadHist, err := dm.DataDB().GetLoadHistory(1, true, utils.NonTransactional)
 	if err != nil || len(loadHist) == 0 {
 		utils.Logger.Info(fmt.Sprintf("could not get load history: %v (%v)", loadHist, err))
 		internalAliaseSChan <- aliasesServer
 		return
 	}
+	*/
 	internalAliaseSChan <- aliasesServer
 }
 
@@ -500,15 +679,21 @@ func startAttributeService(internalAttributeSChan chan rpcclient.RpcClientConnec
 	<-cacheS.GetPrecacheChannel(utils.CacheAttributeProfiles)
 
 	aS, err := engine.NewAttributeService(dm, filterS,
-		cfg.AttributeSCfg().StringIndexedFields, cfg.AttributeSCfg().PrefixIndexedFields)
+		cfg.AttributeSCfg().StringIndexedFields,
+		cfg.AttributeSCfg().PrefixIndexedFields,
+		cfg.AttributeSCfg().ProcessRuns)
 	if err != nil {
-		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.AttributeS, err.Error()))
+		utils.Logger.Crit(
+			fmt.Sprintf("<%s> Could not init, error: %s",
+				utils.AttributeS, err.Error()))
 		exitChan <- true
 		return
 	}
 	go func() {
 		if err := aS.ListenAndServe(exitChan); err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Error: %s listening for packets", utils.AttributeS, err.Error()))
+			utils.Logger.Crit(
+				fmt.Sprintf("<%s> Error: %s listening for packets",
+					utils.AttributeS, err.Error()))
 		}
 		aS.Shutdown()
 		exitChan <- true
@@ -519,6 +704,54 @@ func startAttributeService(internalAttributeSChan chan rpcclient.RpcClientConnec
 	internalAttributeSChan <- aSv1
 }
 
+// startChargerService fires up the ChargerS
+func startChargerService(internalChargerSChan chan rpcclient.RpcClientConnection,
+	cacheS *engine.CacheS, internalAttributeSChan chan rpcclient.RpcClientConnection,
+	cfg *config.CGRConfig, dm *engine.DataManager,
+	server *utils.Server, exitChan chan bool, filterSChan chan *engine.FilterS) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
+	<-cacheS.GetPrecacheChannel(utils.CacheChargerProfiles)
+	var attrSConn *rpcclient.RpcClientPool
+	var err error
+	if len(cfg.ChargerSCfg().AttributeSConns) != 0 { // AttributeS connection init
+		attrSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.ChargerSCfg().AttributeSConns, internalAttributeSChan,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to %s: %s",
+				utils.ChargerS, utils.AttributeS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	cS, err := engine.NewChargerService(dm, filterS, attrSConn, cfg)
+	if err != nil {
+		utils.Logger.Crit(
+			fmt.Sprintf("<%s> Could not init, error: %s",
+				utils.ChargerS, err.Error()))
+		exitChan <- true
+		return
+	}
+	go func() {
+		if err := cS.ListenAndServe(exitChan); err != nil {
+			utils.Logger.Crit(
+				fmt.Sprintf("<%s> Error: %s listening for packets",
+					utils.ChargerS, err.Error()))
+		}
+		cS.Shutdown()
+		exitChan <- true
+		return
+	}()
+	cSv1 := v1.NewChargerSv1(cS)
+	server.RpcRegister(cSv1)
+	internalChargerSChan <- cSv1
+}
+
 func startResourceService(internalRsChan chan rpcclient.RpcClientConnection, cacheS *engine.CacheS,
 	internalThresholdSChan chan rpcclient.RpcClientConnection, cfg *config.CGRConfig,
 	dm *engine.DataManager, server *utils.Server, exitChan chan bool, filterSChan chan *engine.FilterS) {
@@ -527,8 +760,13 @@ func startResourceService(internalRsChan chan rpcclient.RpcClientConnection, cac
 	filterS := <-filterSChan
 	filterSChan <- filterS
 	if len(cfg.ResourceSCfg().ThresholdSConns) != 0 { // Stats connection init
-		thdSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.ResourceSCfg().ThresholdSConns, internalThresholdSChan, cfg.InternalTtl)
+		thdSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.ResourceSCfg().ThresholdSConns, internalThresholdSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<ResourceS> Could not connect to ThresholdS: %s", err.Error()))
 			exitChan <- true
@@ -569,8 +807,13 @@ func startStatService(internalStatSChan chan rpcclient.RpcClientConnection, cach
 	filterS := <-filterSChan
 	filterSChan <- filterS
 	if len(cfg.StatSCfg().ThresholdSConns) != 0 { // Stats connection init
-		thdSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST, cfg.ConnectAttempts, cfg.Reconnects, cfg.ConnectTimeout, cfg.ReplyTimeout,
-			cfg.StatSCfg().ThresholdSConns, internalThresholdSChan, cfg.InternalTtl)
+		thdSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.StatSCfg().ThresholdSConns, internalThresholdSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<StatS> Could not connect to ThresholdS: %s", err.Error()))
 			exitChan <- true
@@ -631,32 +874,39 @@ func startThresholdService(internalThresholdSChan chan rpcclient.RpcClientConnec
 	internalThresholdSChan <- tSv1
 }
 
-// startSupplierService fires up the ThresholdS
+// startSupplierService fires up the SupplierS
 func startSupplierService(internalSupplierSChan chan rpcclient.RpcClientConnection, cacheS *engine.CacheS,
 	internalRsChan, internalStatSChan chan rpcclient.RpcClientConnection,
 	cfg *config.CGRConfig, dm *engine.DataManager, server *utils.Server,
-	exitChan chan bool, filterSChan chan *engine.FilterS) {
+	exitChan chan bool, filterSChan chan *engine.FilterS,
+	internalAttrSChan chan rpcclient.RpcClientConnection) {
 	var err error
 	filterS := <-filterSChan
 	filterSChan <- filterS
-	var resourceSConn, statSConn *rpcclient.RpcClientPool
-	if len(cfg.SupplierSCfg().ResourceSConns) != 0 {
-		resourceSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
-			cfg.ConnectAttempts, cfg.Reconnects,
-			cfg.ConnectTimeout, cfg.ReplyTimeout, cfg.SupplierSCfg().ResourceSConns,
-			internalRsChan, cfg.InternalTtl)
+	var attrSConn, resourceSConn, statSConn *rpcclient.RpcClientPool
+	if len(cfg.SupplierSCfg().AttributeSConns) != 0 {
+		attrSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SupplierSCfg().AttributeSConns, internalAttrSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
-			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ResourceS: %s",
-				utils.SupplierS, err.Error()))
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to %s: %s",
+				utils.SupplierS, utils.AttributeS, err.Error()))
 			exitChan <- true
 			return
 		}
 	}
 	if len(cfg.SupplierSCfg().StatSConns) != 0 {
 		statSConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
-			cfg.ConnectAttempts, cfg.Reconnects,
-			cfg.ConnectTimeout, cfg.ReplyTimeout, cfg.SupplierSCfg().StatSConns,
-			internalStatSChan, cfg.InternalTtl)
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.SupplierSCfg().StatSConns, internalStatSChan,
+			cfg.GeneralCfg().InternalTtl)
 		if err != nil {
 			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to StatS: %s",
 				utils.SupplierS, err.Error()))
@@ -666,8 +916,9 @@ func startSupplierService(internalSupplierSChan chan rpcclient.RpcClientConnecti
 	}
 	<-cacheS.GetPrecacheChannel(utils.CacheSupplierProfiles)
 
-	splS, err := engine.NewSupplierService(dm, cfg.DefaultTimezone, filterS, cfg.SupplierSCfg().StringIndexedFields,
-		cfg.SupplierSCfg().PrefixIndexedFields, resourceSConn, statSConn)
+	splS, err := engine.NewSupplierService(dm, cfg.GeneralCfg().DefaultTimezone,
+		filterS, cfg.SupplierSCfg().StringIndexedFields,
+		cfg.SupplierSCfg().PrefixIndexedFields, resourceSConn, statSConn, attrSConn)
 	if err != nil {
 		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s",
 			utils.SupplierS, err.Error()))
@@ -694,12 +945,219 @@ func startFilterService(filterSChan chan *engine.FilterS, cacheS *engine.CacheS,
 	dm *engine.DataManager, exitChan chan bool) {
 	<-cacheS.GetPrecacheChannel(utils.CacheFilters)
 	filterSChan <- engine.NewFilterS(cfg, internalStatSChan, dm)
+}
 
+// loaderService will start and register APIs for LoaderService if enabled
+func loaderService(cacheS *engine.CacheS, cfg *config.CGRConfig,
+	dm *engine.DataManager, server *utils.Server, exitChan chan bool, filterSChan chan *engine.FilterS) {
+	filterS := <-filterSChan
+	filterSChan <- filterS
+	ldrS := loaders.NewLoaderService(dm, cfg.LoaderCfg(),
+		cfg.GeneralCfg().DefaultTimezone, filterS)
+	if !ldrS.Enabled() {
+		return
+	}
+	go ldrS.ListenAndServe(exitChan)
+	server.RpcRegister(v1.NewLoaderSv1(ldrS))
+}
+
+// startDispatcherService fires up the DispatcherS
+func startDispatcherService(internalDispatcherSChan, internalRaterChan chan rpcclient.RpcClientConnection,
+	cacheS *engine.CacheS, dm *engine.DataManager,
+	server *utils.Server, exitChan chan bool) {
+	utils.Logger.Info("Starting CGRateS Dispatcher service.")
+	var err error
+	var ralsConns, resSConns, threshSConns, statSConns, suplSConns, attrSConns, sessionsSConns, chargerSConns *rpcclient.RpcClientPool
+
+	cfg.DispatcherSCfg().DispatchingStrategy = strings.TrimPrefix(cfg.DispatcherSCfg().DispatchingStrategy,
+		utils.Meta) // remote * from DispatchingStrategy
+	if len(cfg.DispatcherSCfg().RALsConns) != 0 {
+		ralsConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().RALsConns, internalRaterChan,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to RALs: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().ResSConns) != 0 {
+		resSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().ResSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ResoruceS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().ThreshSConns) != 0 {
+		threshSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().ThreshSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ThresholdS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().StatSConns) != 0 {
+		statSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().StatSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to StatQueueS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().SupplSConns) != 0 {
+		suplSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().SupplSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to SupplierS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().AttrSConns) != 0 {
+		attrSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().AttrSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to AttributeS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().SessionSConns) != 0 {
+		sessionsSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().SessionSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to SessionS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	if len(cfg.DispatcherSCfg().ChargerSConns) != 0 {
+		chargerSConns, err = engine.NewRPCPool(cfg.DispatcherSCfg().DispatchingStrategy,
+			cfg.TlsCfg().ClientKey,
+			cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+			cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+			cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+			cfg.DispatcherSCfg().ChargerSConns, nil,
+			cfg.GeneralCfg().InternalTtl)
+		if err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to ChargerS: %s", utils.DispatcherS, err.Error()))
+			exitChan <- true
+			return
+		}
+	}
+	dspS, err := dispatchers.NewDispatcherService(dm, ralsConns, resSConns,
+		threshSConns, statSConns, suplSConns, attrSConns, sessionsSConns, chargerSConns)
+	if err != nil {
+		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.DispatcherS, err.Error()))
+		exitChan <- true
+		return
+	}
+	go func() {
+		if err := dspS.ListenAndServe(exitChan); err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Error: %s listening for packets", utils.DispatcherS, err.Error()))
+		}
+		dspS.Shutdown()
+		exitChan <- true
+		return
+	}()
+	if !cfg.ThresholdSCfg().Enabled && len(cfg.DispatcherSCfg().ThreshSConns) != 0 {
+		server.RpcRegisterName(utils.ThresholdSv1,
+			v1.NewDispatcherThresholdSv1(dspS))
+	}
+	if !cfg.StatSCfg().Enabled && len(cfg.DispatcherSCfg().StatSConns) != 0 {
+		server.RpcRegisterName(utils.StatSv1,
+			v1.NewDispatcherStatSv1(dspS))
+	}
+	if !cfg.ResourceSCfg().Enabled && len(cfg.DispatcherSCfg().ResSConns) != 0 {
+		server.RpcRegisterName(utils.ResourceSv1,
+			v1.NewDispatcherResourceSv1(dspS))
+	}
+	if !cfg.SupplierSCfg().Enabled && len(cfg.DispatcherSCfg().SupplSConns) != 0 {
+		server.RpcRegisterName(utils.SupplierSv1,
+			v1.NewDispatcherSupplierSv1(dspS))
+	}
+	if !cfg.AttributeSCfg().Enabled && len(cfg.DispatcherSCfg().AttrSConns) != 0 {
+		server.RpcRegisterName(utils.AttributeSv1,
+			v1.NewDispatcherAttributeSv1(dspS))
+	}
+	if !cfg.SessionSCfg().Enabled && len(cfg.DispatcherSCfg().SessionSConns) != 0 {
+		server.RpcRegisterName(utils.SessionSv1,
+			v1.NewDispatcherSessionSv1(dspS))
+	}
+	if !cfg.ChargerSCfg().Enabled && len(cfg.DispatcherSCfg().ChargerSConns) != 0 {
+		server.RpcRegisterName(utils.ChargerSv1,
+			v1.NewDispatcherChargerSv1(dspS))
+	}
+}
+
+// startAnalyzerService fires up the AnalyzerS
+func startAnalyzerService(internalAnalyzerSChan chan rpcclient.RpcClientConnection,
+	server *utils.Server, exitChan chan bool) {
+	utils.Logger.Info("Starting CGRateS Analyzer service.")
+	var err error
+	aS, err := analyzers.NewAnalyzerService()
+	if err != nil {
+		utils.Logger.Crit(fmt.Sprintf("<%s> Could not init, error: %s", utils.AnalyzerS, err.Error()))
+		exitChan <- true
+		return
+	}
+	go func() {
+		if err := aS.ListenAndServe(exitChan); err != nil {
+			utils.Logger.Crit(fmt.Sprintf("<%s> Error: %s listening for packets", utils.AnalyzerS, err.Error()))
+		}
+		aS.Shutdown()
+		exitChan <- true
+		return
+	}()
+	aSv1 := v1.NewAnalyzerSv1(aS)
+	server.RpcRegister(aSv1)
+	internalAnalyzerSChan <- aSv1
 }
 
 func startRpc(server *utils.Server, internalRaterChan,
 	internalCdrSChan, internalCdrStatSChan, internalPubSubSChan, internalUserSChan,
-	internalAliaseSChan, internalRsChan, internalStatSChan, internalSMGChan chan rpcclient.RpcClientConnection) {
+	internalAliaseSChan, internalRsChan, internalStatSChan,
+	internalAttrSChan, internalChargerSChan, internalThdSChan, internalSuplSChan,
+	internalSMGChan, internalDispatcherSChan, internalAnalyzerSChan chan rpcclient.RpcClientConnection,
+	exitChan chan bool) {
 	select { // Any of the rpc methods will unlock listening to rpc requests
 	case resp := <-internalRaterChan:
 		internalRaterChan <- resp
@@ -719,16 +1177,76 @@ func startRpc(server *utils.Server, internalRaterChan,
 		internalRsChan <- rls
 	case statS := <-internalStatSChan:
 		internalStatSChan <- statS
+	case attrS := <-internalAttrSChan:
+		internalAttrSChan <- attrS
+	case chrgS := <-internalChargerSChan:
+		internalChargerSChan <- chrgS
+	case thS := <-internalThdSChan:
+		internalThdSChan <- thS
+	case splS := <-internalSuplSChan:
+		internalSuplSChan <- splS
+	case dispatcherS := <-internalDispatcherSChan:
+		internalDispatcherSChan <- dispatcherS
+	case analyzerS := <-internalAnalyzerSChan:
+		internalAnalyzerSChan <- analyzerS
 	}
-	go server.ServeJSON(cfg.RPCJSONListen)
-	go server.ServeGOB(cfg.RPCGOBListen)
+
+	go server.ServeJSON(cfg.ListenCfg().RPCJSONListen)
+	go server.ServeGOB(cfg.ListenCfg().RPCGOBListen)
 	go server.ServeHTTP(
-		cfg.HTTPListen,
-		cfg.HTTPJsonRPCURL,
-		cfg.HTTPWSURL,
-		cfg.HTTPUseBasicAuth,
-		cfg.HTTPAuthUsers,
+		cfg.ListenCfg().HTTPListen,
+		cfg.HTTPCfg().HTTPJsonRPCURL,
+		cfg.HTTPCfg().HTTPWSURL,
+		cfg.HTTPCfg().HTTPUseBasicAuth,
+		cfg.HTTPCfg().HTTPAuthUsers,
+		exitChan,
 	)
+	if cfg.ListenCfg().RPCGOBTLSListen != "" {
+		if cfg.TlsCfg().ServerCerificate == "" || cfg.TlsCfg().ServerKey == "" {
+			utils.Logger.Warning("WARNING: missing TLS certificate/key file!")
+		} else {
+			go server.ServeGOBTLS(
+				cfg.ListenCfg().RPCGOBTLSListen,
+				cfg.TlsCfg().ServerCerificate,
+				cfg.TlsCfg().ServerKey,
+				cfg.TlsCfg().CaCertificate,
+				cfg.TlsCfg().ServerPolicy,
+				cfg.TlsCfg().ServerName,
+			)
+		}
+	}
+	if cfg.ListenCfg().RPCJSONTLSListen != "" {
+		if cfg.TlsCfg().ServerCerificate == "" || cfg.TlsCfg().ServerKey == "" {
+			utils.Logger.Warning("WARNING: missing TLS certificate/key file!")
+		} else {
+			go server.ServeJSONTLS(
+				cfg.ListenCfg().RPCJSONTLSListen,
+				cfg.TlsCfg().ServerCerificate,
+				cfg.TlsCfg().ServerKey,
+				cfg.TlsCfg().CaCertificate,
+				cfg.TlsCfg().ServerPolicy,
+				cfg.TlsCfg().ServerName,
+			)
+		}
+	}
+	if cfg.ListenCfg().HTTPTLSListen != "" {
+		if cfg.TlsCfg().ServerCerificate == "" || cfg.TlsCfg().ServerKey == "" {
+			utils.Logger.Warning("WARNING: missing TLS certificate/key file!")
+		} else {
+			go server.ServeHTTPTLS(
+				cfg.ListenCfg().HTTPTLSListen,
+				cfg.TlsCfg().ServerCerificate,
+				cfg.TlsCfg().ServerKey,
+				cfg.TlsCfg().CaCertificate,
+				cfg.TlsCfg().ServerPolicy,
+				cfg.TlsCfg().ServerName,
+				cfg.HTTPCfg().HTTPJsonRPCURL,
+				cfg.HTTPCfg().HTTPWSURL,
+				cfg.HTTPCfg().HTTPUseBasicAuth,
+				cfg.HTTPCfg().HTTPAuthUsers,
+			)
+		}
+	}
 }
 
 func writePid() {
@@ -745,15 +1263,33 @@ func writePid() {
 
 // initLogger will initialize syslog writter, needs to be called after config init
 func initLogger(cfg *config.CGRConfig) error {
-	sylogger := cfg.Logger
+	sylogger := cfg.GeneralCfg().Logger
 	if *syslogger != "" { // Modify the log level if provided by command arguments
 		sylogger = *syslogger
 	}
-	err := utils.Newlogger(sylogger, cfg.NodeID)
+	err := utils.Newlogger(sylogger, cfg.GeneralCfg().NodeID)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func schedCDRsConns(internalCDRSChan chan rpcclient.RpcClientConnection, exitChan chan bool) {
+	var err error
+	var cdrsConn *rpcclient.RpcClientPool
+	cdrsConn, err = engine.NewRPCPool(rpcclient.POOL_FIRST,
+		cfg.TlsCfg().ClientKey,
+		cfg.TlsCfg().ClientCerificate, cfg.TlsCfg().CaCertificate,
+		cfg.GeneralCfg().ConnectAttempts, cfg.GeneralCfg().Reconnects,
+		cfg.GeneralCfg().ConnectTimeout, cfg.GeneralCfg().ReplyTimeout,
+		cfg.SchedulerCfg().CDRsConns, internalCDRSChan,
+		cfg.GeneralCfg().InternalTtl)
+	if err != nil {
+		utils.Logger.Crit(fmt.Sprintf("<%s> Could not connect to CDRServer: %s", utils.SchedulerS, err.Error()))
+		exitChan <- true
+		return
+	}
+	engine.SetSchedCdrsConns(cdrsConn)
 }
 
 func main() {
@@ -797,7 +1333,7 @@ func main() {
 		return
 	}
 	if *nodeID != "" {
-		cfg.NodeID = *nodeID
+		cfg.GeneralCfg().NodeID = *nodeID
 	}
 	config.SetCgrConfig(cfg) // Share the config object
 
@@ -806,7 +1342,7 @@ func main() {
 		log.Fatalf("Could not initialize syslog connection, err: <%s>", err.Error())
 		return
 	}
-	lgLevel := cfg.LogLevel
+	lgLevel := cfg.GeneralCfg().LogLevel
 	if *logLevel != -1 { // Modify the log level if provided by command arguments
 		lgLevel = *logLevel
 	}
@@ -814,44 +1350,59 @@ func main() {
 	var loadDb engine.LoadStorage
 	var cdrDb engine.CdrStorage
 	var dm *engine.DataManager
-	// FixMe: add here exceptions if running only CDRC
-	dm, err = engine.ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
-		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), cfg.LoadHistorySize)
-	if err != nil { // Cannot configure getter database, show stopper
-		utils.Logger.Crit(fmt.Sprintf("Could not configure dataDb: %s exiting!", err))
-		return
+	if cfg.RalsCfg().RALsEnabled || cfg.CdrStatsCfg().CDRStatsEnabled || cfg.PubSubServerEnabled ||
+		cfg.AliasesServerEnabled || cfg.UserServerEnabled || cfg.SchedulerCfg().Enabled ||
+		cfg.AttributeSCfg().Enabled || cfg.ResourceSCfg().Enabled || cfg.StatSCfg().Enabled ||
+		cfg.ThresholdSCfg().Enabled || cfg.SupplierSCfg().Enabled { // Some services can run without db, ie: SessionS or CDRC
+		dm, err = engine.ConfigureDataStorage(cfg.DataDbCfg().DataDbType,
+			cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort,
+			cfg.DataDbCfg().DataDbName, cfg.DataDbCfg().DataDbUser,
+			cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
+			cfg.CacheCfg(), cfg.DataDbCfg().DataDbSentinelName)
+		if err != nil { // Cannot configure getter database, show stopper
+			utils.Logger.Crit(fmt.Sprintf("Could not configure dataDb: %s exiting!", err))
+			return
+		}
+		defer dm.DataDB().Close()
+		engine.SetDataStorage(dm)
+		if err := engine.CheckVersions(dm.DataDB()); err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 	}
-	defer dm.DataDB().Close()
-	engine.SetDataStorage(dm)
-	if err := engine.CheckVersions(dm.DataDB()); err != nil {
-		fmt.Println(err.Error())
-		return
+	if cfg.RalsCfg().RALsEnabled || cfg.CdrsCfg().CDRSEnabled {
+		storDb, err := engine.ConfigureStorStorage(cfg.StorDbCfg().StorDBType,
+			cfg.StorDbCfg().StorDBHost, cfg.StorDbCfg().StorDBPort,
+			cfg.StorDbCfg().StorDBName, cfg.StorDbCfg().StorDBUser,
+			cfg.StorDbCfg().StorDBPass, cfg.GeneralCfg().DBDataEncoding,
+			cfg.StorDbCfg().StorDBMaxOpenConns, cfg.StorDbCfg().StorDBMaxIdleConns,
+			cfg.StorDbCfg().StorDBConnMaxLifetime, cfg.StorDbCfg().StorDBCDRSIndexes)
+		if err != nil { // Cannot configure logger database, show stopper
+			utils.Logger.Crit(fmt.Sprintf("Could not configure logger database: %s exiting!", err))
+			return
+		}
+		defer storDb.Close()
+		// loadDb,cdrDb and storDb are all mapped on the same stordb storage
+		loadDb = storDb.(engine.LoadStorage)
+		cdrDb = storDb.(engine.CdrStorage)
+		engine.SetCdrStorage(cdrDb)
+		if err := engine.CheckVersions(storDb); err != nil {
+			fmt.Println(err.Error())
+			return
+		}
 	}
-	storDb, err := engine.ConfigureStorStorage(cfg.StorDBType, cfg.StorDBHost, cfg.StorDBPort,
-		cfg.StorDBName, cfg.StorDBUser, cfg.StorDBPass, cfg.DBDataEncoding, cfg.StorDBMaxOpenConns,
-		cfg.StorDBMaxIdleConns, cfg.StorDBConnMaxLifetime, cfg.StorDBCDRSIndexes)
-	if err != nil { // Cannot configure logger database, show stopper
-		utils.Logger.Crit(fmt.Sprintf("Could not configure logger database: %s exiting!", err))
-		return
-	}
-	defer storDb.Close()
-	// loadDb,cdrDb and storDb are all mapped on the same stordb storage
-	loadDb = storDb.(engine.LoadStorage)
-	cdrDb = storDb.(engine.CdrStorage)
-	engine.SetCdrStorage(cdrDb)
-	if err := engine.CheckVersions(storDb); err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
 	// Done initing DBs
-	engine.SetRoundingDecimals(cfg.RoundingDecimals)
-	engine.SetRpSubjectPrefixMatching(cfg.RpSubjectPrefixMatching)
-	engine.SetLcrSubjectPrefixMatching(cfg.LcrSubjectPrefixMatching)
+	engine.SetRoundingDecimals(cfg.GeneralCfg().RoundingDecimals)
+	engine.SetRpSubjectPrefixMatching(cfg.RalsCfg().RpSubjectPrefixMatching)
+	engine.SetLcrSubjectPrefixMatching(cfg.RalsCfg().LcrSubjectPrefixMatching)
 	stopHandled := false
+
+	// Rpc/http server
+	server := new(utils.Server)
 
 	// init cache
 	cacheS := engine.NewCacheS(cfg, dm)
+	server.RpcRegister(v1.NewCacheSv1(cacheS)) // before pre-caching so we can check status via API
 	go func() {
 		if err := cacheS.Precache(); err != nil {
 			errCGR := err.(*utils.CGRError)
@@ -861,9 +1412,6 @@ func main() {
 			exitChan <- true
 		}
 	}()
-
-	// Rpc/http server
-	server := new(utils.Server)
 
 	// Async starts here, will follow cgrates.json start order
 
@@ -876,49 +1424,59 @@ func main() {
 	internalAliaseSChan := make(chan rpcclient.RpcClientConnection, 1)
 	internalSMGChan := make(chan rpcclient.RpcClientConnection, 1)
 	internalAttributeSChan := make(chan rpcclient.RpcClientConnection, 1)
+	internalChargerSChan := make(chan rpcclient.RpcClientConnection, 1)
 	internalRsChan := make(chan rpcclient.RpcClientConnection, 1)
 	internalStatSChan := make(chan rpcclient.RpcClientConnection, 1)
 	internalThresholdSChan := make(chan rpcclient.RpcClientConnection, 1)
 	internalSupplierSChan := make(chan rpcclient.RpcClientConnection, 1)
 	filterSChan := make(chan *engine.FilterS, 1)
+	internalDispatcherSChan := make(chan rpcclient.RpcClientConnection, 1)
+	internalAnalyzerSChan := make(chan rpcclient.RpcClientConnection, 1)
 
 	// Start ServiceManager
 	srvManager := servmanager.NewServiceManager(cfg, dm, exitChan, cacheS)
 
 	// Start rater service
-	if cfg.RALsEnabled {
+	if cfg.RalsCfg().RALsEnabled {
 		go startRater(internalRaterChan, cacheS, internalThresholdSChan,
 			internalCdrStatSChan, internalStatSChan,
-			internalPubSubSChan, internalAttributeSChan,
-			internalUserSChan, internalAliaseSChan,
-			srvManager, server, dm, loadDb, cdrDb, &stopHandled, exitChan)
+			internalPubSubSChan, internalUserSChan, internalAliaseSChan,
+			srvManager, server, dm, loadDb, cdrDb, &stopHandled, exitChan, filterSChan)
 	}
 
 	// Start Scheduler
-	if cfg.SchedulerEnabled {
+	if cfg.SchedulerCfg().Enabled {
 		go srvManager.StartScheduler(true)
 	}
 
 	// Start CDR Server
-	if cfg.CDRSEnabled {
+	if cfg.CdrsCfg().CDRSEnabled {
 		go startCDRS(internalCdrSChan, cdrDb, dm,
 			internalRaterChan, internalPubSubSChan, internalAttributeSChan,
 			internalUserSChan, internalAliaseSChan, internalCdrStatSChan,
-			internalThresholdSChan, internalStatSChan, server, exitChan)
+			internalThresholdSChan, internalStatSChan, internalChargerSChan,
+			server, exitChan, filterSChan)
+	}
+
+	// Create connection to CDR Server and share it in engine(used for *cdrlog action)
+	if len(cfg.SchedulerCfg().CDRsConns) != 0 {
+		go schedCDRsConns(internalCdrSChan, exitChan)
 	}
 
 	// Start CDR Stats server
-	if cfg.CDRStatsEnabled {
+	if cfg.CdrStatsCfg().CDRStatsEnabled {
 		go startCdrStats(internalCdrStatSChan, dm, server)
 	}
 
 	// Start CDRC components if necessary
-	go startCdrcs(internalCdrSChan, internalRaterChan, exitChan)
+	go startCdrcs(internalCdrSChan, internalRaterChan, exitChan, filterSChan)
 
 	// Start SM-Generic
 	if cfg.SessionSCfg().Enabled {
-		go startSessionS(internalSMGChan, internalRaterChan, internalRsChan, internalThresholdSChan,
-			internalStatSChan, internalSupplierSChan, internalAttributeSChan, internalCdrSChan, server, exitChan)
+		go startSessionS(internalSMGChan, internalRaterChan,
+			internalRsChan, internalThresholdSChan,
+			internalStatSChan, internalSupplierSChan, internalAttributeSChan,
+			internalCdrSChan, internalChargerSChan, server, exitChan)
 	}
 	// Start FreeSWITCHAgent
 	if cfg.FsAgentCfg().Enabled {
@@ -937,11 +1495,16 @@ func main() {
 	}
 
 	if cfg.DiameterAgentCfg().Enabled {
-		go startDiameterAgent(internalSMGChan, internalPubSubSChan, exitChan)
+		go startDiameterAgent(internalSMGChan, exitChan, filterSChan)
 	}
 
 	if cfg.RadiusAgentCfg().Enabled {
-		go startRadiusAgent(internalSMGChan, exitChan)
+		go startRadiusAgent(internalSMGChan, exitChan, filterSChan)
+	}
+
+	if len(cfg.HttpAgentCfg()) != 0 {
+		go startHTTPAgent(internalSMGChan, exitChan, server, filterSChan,
+			cfg.GeneralCfg().DefaultTenant)
 	}
 
 	// Start PubSubS service
@@ -965,6 +1528,10 @@ func main() {
 		go startAttributeService(internalAttributeSChan, cacheS,
 			cfg, dm, server, exitChan, filterSChan)
 	}
+	if cfg.ChargerSCfg().Enabled {
+		go startChargerService(internalChargerSChan, cacheS,
+			internalAttributeSChan, cfg, dm, server, exitChan, filterSChan)
+	}
 
 	// Start RL service
 	if cfg.ResourceSCfg().Enabled {
@@ -985,12 +1552,26 @@ func main() {
 	if cfg.SupplierSCfg().Enabled {
 		go startSupplierService(internalSupplierSChan, cacheS,
 			internalRsChan, internalStatSChan,
-			cfg, dm, server, exitChan, filterSChan)
+			cfg, dm, server, exitChan, filterSChan, internalAttributeSChan)
 	}
+	if cfg.DispatcherSCfg().Enabled {
+		go startDispatcherService(internalDispatcherSChan,
+			internalRaterChan, cacheS, dm, server, exitChan)
+	}
+
+	if cfg.AnalyzerSCfg().Enabled {
+		go startAnalyzerService(internalAnalyzerSChan, server, exitChan)
+	}
+
+	go loaderService(cacheS, cfg, dm, server, exitChan, filterSChan)
 
 	// Serve rpc connections
 	go startRpc(server, internalRaterChan, internalCdrSChan, internalCdrStatSChan,
-		internalPubSubSChan, internalUserSChan, internalAliaseSChan, internalRsChan, internalStatSChan, internalSMGChan)
+		internalPubSubSChan, internalUserSChan, internalAliaseSChan, internalRsChan,
+		internalStatSChan,
+		internalAttributeSChan, internalChargerSChan, internalThresholdSChan,
+		internalSupplierSChan,
+		internalSMGChan, internalDispatcherSChan, internalAnalyzerSChan, exitChan)
 	<-exitChan
 
 	if *memprofile != "" {

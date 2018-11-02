@@ -27,113 +27,251 @@ import (
 	"github.com/cgrates/cgrates/utils"
 )
 
-var hdrJsnCfgFlds = []*config.CdrFieldJsonCfg{
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("TypeOfRecord"),
-		Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("10"),
+var hdrJsnCfgFlds = []*config.FcTemplateJsonCfg{
+	{
+		Tag:   utils.StringPointer("TypeOfRecord"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("10"),
 		Width: utils.IntPointer(2)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Filler1"),
-		Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(3)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("DistributorCode"),
-		Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("VOI"),
+	{
+		Tag:   utils.StringPointer("Filler1"),
+		Type:  utils.StringPointer(utils.META_FILLER),
 		Width: utils.IntPointer(3)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("FileSeqNr"),
-		Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_EXPORTID),
-		Width: utils.IntPointer(5), Strip: utils.StringPointer("right"),
+	{
+		Tag:   utils.StringPointer("DistributorCode"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("VOI"),
+		Width: utils.IntPointer(3)},
+	{
+		Tag:     utils.StringPointer("FileSeqNr"),
+		Type:    utils.StringPointer(utils.META_HANDLER),
+		Value:   utils.StringPointer(META_EXPORTID),
+		Width:   utils.IntPointer(5),
+		Strip:   utils.StringPointer("right"),
 		Padding: utils.StringPointer("zeroleft")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("LastCdr"),
-		Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_LASTCDRATIME),
-		Width: utils.IntPointer(12), Layout: utils.StringPointer("020106150400")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("FileCreationfTime"),
-		Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_TIMENOW),
-		Width: utils.IntPointer(12), Layout: utils.StringPointer("020106150400")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("FileVersion"),
-		Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("01"),
+	{
+		Tag:    utils.StringPointer("LastCdr"),
+		Type:   utils.StringPointer(utils.META_HANDLER),
+		Width:  utils.IntPointer(12),
+		Value:  utils.StringPointer(META_LASTCDRATIME),
+		Layout: utils.StringPointer("020106150400")},
+	{
+		Tag:    utils.StringPointer("FileCreationfTime"),
+		Type:   utils.StringPointer(utils.META_HANDLER),
+		Value:  utils.StringPointer(META_TIMENOW),
+		Width:  utils.IntPointer(12),
+		Layout: utils.StringPointer("020106150400")},
+	{
+		Tag:   utils.StringPointer("FileVersion"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("01"),
 		Width: utils.IntPointer(2)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Filler2"),
-		Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(105)},
+	{
+		Tag:   utils.StringPointer("Filler2"),
+		Type:  utils.StringPointer(utils.META_FILLER),
+		Width: utils.IntPointer(105)},
 }
 
-var contentJsnCfgFlds = []*config.CdrFieldJsonCfg{
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("TypeOfRecord"),
-		Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("20"), Width: utils.IntPointer(2)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Account"), Type: utils.StringPointer(utils.META_COMPOSED),
-		Value: utils.StringPointer(utils.Account), Width: utils.IntPointer(12),
-		Strip: utils.StringPointer("left"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Subject"), Type: utils.StringPointer(utils.META_COMPOSED),
-		Value: utils.StringPointer(utils.Subject), Width: utils.IntPointer(5),
-		Strip: utils.StringPointer("right"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("CLI"), Type: utils.StringPointer(utils.META_COMPOSED),
-		Value: utils.StringPointer("cli"), Width: utils.IntPointer(15),
-		Strip: utils.StringPointer("xright"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Destination"), Type: utils.StringPointer(utils.META_COMPOSED),
-		Value: utils.StringPointer(utils.Destination), Width: utils.IntPointer(24),
-		Strip: utils.StringPointer("xright"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("TOR"), Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("02"), Width: utils.IntPointer(2)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("SubtypeTOR"), Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("11"), Width: utils.IntPointer(4),
+var contentJsnCfgFlds = []*config.FcTemplateJsonCfg{
+	{
+		Tag:   utils.StringPointer("TypeOfRecord"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("20"),
+		Width: utils.IntPointer(2)},
+	{
+		Tag:     utils.StringPointer("Account"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~" + utils.Account),
+		Width:   utils.IntPointer(12),
+		Strip:   utils.StringPointer("left"),
 		Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("SetupTime"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer(utils.SetupTime), Width: utils.IntPointer(12),
-		Strip: utils.StringPointer("right"), Padding: utils.StringPointer("right"), Layout: utils.StringPointer("020106150400")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Duration"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer(utils.Usage), Width: utils.IntPointer(6),
-		Strip: utils.StringPointer("right"), Padding: utils.StringPointer("right"), Layout: utils.StringPointer(utils.SECONDS)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("DataVolume"), Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(6)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("TaxCode"), Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("1"), Width: utils.IntPointer(1)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("OperatorCode"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer("opercode"), Width: utils.IntPointer(2),
-		Strip: utils.StringPointer("right"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("ProductId"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer("productid"), Width: utils.IntPointer(5),
-		Strip: utils.StringPointer("right"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("NetworkId"), Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("3"), Width: utils.IntPointer(1)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("CallId"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer(utils.OriginID), Width: utils.IntPointer(16),
+	{
+		Tag:     utils.StringPointer("Subject"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~" + utils.Subject),
+		Width:   utils.IntPointer(5),
+		Strip:   utils.StringPointer("right"),
 		Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Filler"), Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(8)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Filler"), Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(8)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("TerminationCode"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer("operator;product"),
-		Width: utils.IntPointer(5), Strip: utils.StringPointer("right"), Padding: utils.StringPointer("right")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Cost"), Type: utils.StringPointer(utils.META_COMPOSED), Value: utils.StringPointer(utils.COST), Width: utils.IntPointer(9),
+	{
+		Tag:     utils.StringPointer("CLI"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Width:   utils.IntPointer(15),
+		Value:   utils.StringPointer("cli"),
+		Strip:   utils.StringPointer("xright"),
+		Padding: utils.StringPointer("right")},
+	{
+		Tag:     utils.StringPointer("Destination"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~" + utils.Destination),
+		Width:   utils.IntPointer(24),
+		Strip:   utils.StringPointer("xright"),
+		Padding: utils.StringPointer("right")},
+	{
+		Tag:   utils.StringPointer("ToR"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("02"),
+		Width: utils.IntPointer(2)},
+	{
+		Tag:     utils.StringPointer("SubtypeTOR"),
+		Type:    utils.StringPointer(utils.META_CONSTANT),
+		Value:   utils.StringPointer("11"),
+		Padding: utils.StringPointer("right"),
+		Width:   utils.IntPointer(4)},
+	{
+		Tag:     utils.StringPointer("SetupTime"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~" + utils.SetupTime),
+		Width:   utils.IntPointer(12),
+		Strip:   utils.StringPointer("right"),
+		Padding: utils.StringPointer("right"),
+		Layout:  utils.StringPointer("020106150400")},
+	{
+		Tag:     utils.StringPointer("Duration"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~" + utils.Usage),
+		Width:   utils.IntPointer(6),
+		Strip:   utils.StringPointer("right"),
+		Padding: utils.StringPointer("right"),
+		Layout:  utils.StringPointer(utils.SECONDS)},
+	{
+		Tag:   utils.StringPointer("DataVolume"),
+		Type:  utils.StringPointer(utils.META_FILLER),
+		Width: utils.IntPointer(6)},
+	{
+		Tag:   utils.StringPointer("TaxCode"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("1"),
+		Width: utils.IntPointer(1)},
+	{
+		Tag:     utils.StringPointer("OperatorCode"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("opercode"),
+		Width:   utils.IntPointer(2),
+		Strip:   utils.StringPointer("right"),
+		Padding: utils.StringPointer("right")},
+	{
+		Tag:     utils.StringPointer("ProductId"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~productid"),
+		Width:   utils.IntPointer(5),
+		Strip:   utils.StringPointer("right"),
+		Padding: utils.StringPointer("right")},
+	{
+		Tag:   utils.StringPointer("NetworkId"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("3"),
+		Width: utils.IntPointer(1)},
+	{
+		Tag:     utils.StringPointer("CallId"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~" + utils.OriginID),
+		Width:   utils.IntPointer(16),
+		Padding: utils.StringPointer("right")},
+	{
+		Tag:   utils.StringPointer("Filler"),
+		Type:  utils.StringPointer(utils.META_FILLER),
+		Width: utils.IntPointer(8)},
+	{
+		Tag:   utils.StringPointer("Filler"),
+		Type:  utils.StringPointer(utils.META_FILLER),
+		Width: utils.IntPointer(8)},
+	{
+		Tag:     utils.StringPointer("TerminationCode"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Value:   utils.StringPointer("~operator;~product"),
+		Width:   utils.IntPointer(5),
+		Strip:   utils.StringPointer("right"),
+		Padding: utils.StringPointer("right")},
+	{
+		Tag:     utils.StringPointer("Cost"),
+		Type:    utils.StringPointer(utils.META_COMPOSED),
+		Width:   utils.IntPointer(9),
+		Value:   utils.StringPointer("~" + utils.COST),
 		Padding: utils.StringPointer("zeroleft")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("DestinationPrivacy"), Type: utils.StringPointer(utils.MetaMaskedDestination), Width: utils.IntPointer(1)},
+	{
+		Tag:   utils.StringPointer("DestinationPrivacy"),
+		Type:  utils.StringPointer(utils.MetaMaskedDestination),
+		Width: utils.IntPointer(1)},
 }
 
-var trailerJsnCfgFlds = []*config.CdrFieldJsonCfg{
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("TypeOfRecord"), Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("90"), Width: utils.IntPointer(2)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Filler1"), Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(3)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("DistributorCode"), Type: utils.StringPointer(utils.META_CONSTANT), Value: utils.StringPointer("VOI"), Width: utils.IntPointer(3)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("FileSeqNr"), Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_EXPORTID), Width: utils.IntPointer(5),
-		Strip: utils.StringPointer("right"), Padding: utils.StringPointer("zeroleft")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("NumberOfRecords"), Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_NRCDRS),
-		Width: utils.IntPointer(6), Padding: utils.StringPointer("zeroleft")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("CdrsDuration"), Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_DURCDRS),
-		Width: utils.IntPointer(8), Padding: utils.StringPointer("zeroleft"), Layout: utils.StringPointer(utils.SECONDS)},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("FirstCdrTime"), Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_FIRSTCDRATIME),
-		Width: utils.IntPointer(12), Layout: utils.StringPointer("020106150400")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("LastCdrTime"), Type: utils.StringPointer(utils.META_HANDLER), Value: utils.StringPointer(META_LASTCDRATIME),
-		Width: utils.IntPointer(12), Layout: utils.StringPointer("020106150400")},
-	&config.CdrFieldJsonCfg{Tag: utils.StringPointer("Filler2"), Type: utils.StringPointer(utils.META_FILLER), Width: utils.IntPointer(93)},
+var trailerJsnCfgFlds = []*config.FcTemplateJsonCfg{
+	{
+		Tag:   utils.StringPointer("TypeOfRecord"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("90"),
+		Width: utils.IntPointer(2)},
+	{
+		Tag:   utils.StringPointer("Filler1"),
+		Type:  utils.StringPointer(utils.META_FILLER),
+		Width: utils.IntPointer(3)},
+	{
+		Tag:   utils.StringPointer("DistributorCode"),
+		Type:  utils.StringPointer(utils.META_CONSTANT),
+		Value: utils.StringPointer("VOI"),
+		Width: utils.IntPointer(3)},
+	{
+		Tag:     utils.StringPointer("FileSeqNr"),
+		Type:    utils.StringPointer(utils.META_HANDLER),
+		Value:   utils.StringPointer(META_EXPORTID),
+		Width:   utils.IntPointer(5),
+		Strip:   utils.StringPointer("right"),
+		Padding: utils.StringPointer("zeroleft")},
+	{
+		Tag:     utils.StringPointer("NumberOfRecords"),
+		Type:    utils.StringPointer(utils.META_HANDLER),
+		Value:   utils.StringPointer(META_NRCDRS),
+		Width:   utils.IntPointer(6),
+		Padding: utils.StringPointer("zeroleft")},
+	{
+		Tag:     utils.StringPointer("CdrsDuration"),
+		Type:    utils.StringPointer(utils.META_HANDLER),
+		Value:   utils.StringPointer(META_DURCDRS),
+		Width:   utils.IntPointer(8),
+		Padding: utils.StringPointer("zeroleft"),
+		Layout:  utils.StringPointer(utils.SECONDS)},
+	{
+		Tag:    utils.StringPointer("FirstCdrTime"),
+		Type:   utils.StringPointer(utils.META_HANDLER),
+		Width:  utils.IntPointer(12),
+		Value:  utils.StringPointer(META_FIRSTCDRATIME),
+		Layout: utils.StringPointer("020106150400")},
+	{
+		Tag:    utils.StringPointer("LastCdrTime"),
+		Type:   utils.StringPointer(utils.META_HANDLER),
+		Width:  utils.IntPointer(12),
+		Value:  utils.StringPointer(META_LASTCDRATIME),
+		Layout: utils.StringPointer("020106150400")},
+	{
+		Tag:   utils.StringPointer("Filler2"),
+		Type:  utils.StringPointer(utils.META_FILLER),
+		Width: utils.IntPointer(93)},
 }
 
-var hdrCfgFlds, contentCfgFlds, trailerCfgFlds []*config.CfgCdrField
+var hdrCfgFlds, contentCfgFlds, trailerCfgFlds []*config.FCTemplate
 
 // Write one CDR and test it's results only for content buffer
 func TestWriteCdr(t *testing.T) {
 	var err error
 	wrBuf := &bytes.Buffer{}
 	cfg, _ := config.NewDefaultCGRConfig()
-	if hdrCfgFlds, err = config.CfgCdrFieldsFromCdrFieldsJsonCfg(hdrJsnCfgFlds); err != nil {
+	if hdrCfgFlds, err = config.FCTemplatesFromFCTemplatesJsonCfg(hdrJsnCfgFlds); err != nil {
 		t.Error(err)
 	}
-	if contentCfgFlds, err = config.CfgCdrFieldsFromCdrFieldsJsonCfg(contentJsnCfgFlds); err != nil {
+	if contentCfgFlds, err = config.FCTemplatesFromFCTemplatesJsonCfg(contentJsnCfgFlds); err != nil {
 		t.Error(err)
 	}
-	if trailerCfgFlds, err = config.CfgCdrFieldsFromCdrFieldsJsonCfg(trailerJsnCfgFlds); err != nil {
+	if trailerCfgFlds, err = config.FCTemplatesFromFCTemplatesJsonCfg(trailerJsnCfgFlds); err != nil {
 		t.Error(err)
 	}
-	cdreCfg := &config.CdreConfig{
+	cdreCfg := &config.CdreCfg{
 		ExportFormat:  utils.MetaFileFWV,
 		HeaderFields:  hdrCfgFlds,
 		ContentFields: contentCfgFlds,
 		TrailerFields: trailerCfgFlds,
 	}
-	cdr := &CDR{CGRID: utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 20, 0, time.UTC).String()),
-		ToR: utils.VOICE, OrderID: 1, OriginID: "dsafdsaf", OriginHost: "192.168.1.1",
+	cdr := &CDR{
+		CGRID: utils.Sha1("dsafdsaf", time.Date(2013, 11, 7, 8, 42, 20, 0, time.UTC).String()),
+		ToR:   utils.VOICE, OrderID: 1, OriginID: "dsafdsaf", OriginHost: "192.168.1.1",
 		RequestType: utils.META_RATED, Tenant: "cgrates.org", Category: "call",
 		Account: "1001", Subject: "1001", Destination: "1002",
 		SetupTime:  time.Date(2013, 11, 7, 8, 42, 20, 0, time.UTC),
@@ -144,7 +282,8 @@ func TestWriteCdr(t *testing.T) {
 	}
 
 	cdre, err := NewCDRExporter([]*CDR{cdr}, cdreCfg, utils.MetaFileFWV, "", "", "fwv_1",
-		true, 1, '|', map[string]float64{}, 0.0, cfg.RoundingDecimals, cfg.HttpSkipTlsVerify, nil)
+		true, 1, '|', map[string]float64{}, 0.0, cfg.GeneralCfg().RoundingDecimals,
+		cfg.GeneralCfg().HttpSkipTlsVerify, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -160,9 +299,11 @@ func TestWriteCdr(t *testing.T) {
 	allOut := wrBuf.String()
 	eAllOut := eHeader + eContentOut + eTrailer
 	if math.Mod(float64(len(allOut)), 145) != 0 {
-		t.Error("Unexpected export content length", len(allOut))
+		t.Errorf("Unexpected export content length %d, have output \n%q, \n expecting: \n%q",
+			len(allOut), allOut, eAllOut)
 	} else if len(allOut) != len(eAllOut) {
-		t.Errorf("Output does not match expected length. Have output %q, expecting: %q", allOut, eAllOut)
+		t.Errorf("Output does not match expected length. Have output \n%q, \n expecting: \n%q",
+			allOut, eAllOut)
 	}
 	// Test stats
 	if !cdre.firstCdrATime.Equal(cdr.AnswerTime) {
@@ -176,6 +317,7 @@ func TestWriteCdr(t *testing.T) {
 	} else if cdre.totalCost != utils.Round(cdr.Cost, cdre.roundingDecimals, utils.ROUNDING_MIDDLE) {
 		t.Error("Unexpected total cost in the stats: ", cdre.totalCost)
 	}
+
 	if cdre.FirstOrderId() != 1 {
 		t.Error("Unexpected FirstOrderId", cdre.FirstOrderId())
 	}
@@ -189,7 +331,7 @@ func TestWriteCdr(t *testing.T) {
 
 func TestWriteCdrs(t *testing.T) {
 	wrBuf := &bytes.Buffer{}
-	cdreCfg := &config.CdreConfig{
+	cdreCfg := &config.CdreCfg{
 		ExportFormat:  utils.MetaFileFWV,
 		HeaderFields:  hdrCfgFlds,
 		ContentFields: contentCfgFlds,
@@ -226,8 +368,10 @@ func TestWriteCdrs(t *testing.T) {
 		ExtraFields: map[string]string{"productnumber": "12344", "fieldextr2": "valextr2"},
 	}
 	cfg, _ := config.NewDefaultCGRConfig()
-	cdre, err := NewCDRExporter([]*CDR{cdr1, cdr2, cdr3, cdr4}, cdreCfg, utils.MetaFileFWV, "", "", "fwv_1",
-		true, 1, ',', map[string]float64{}, 0.0, cfg.RoundingDecimals, cfg.HttpSkipTlsVerify, nil)
+	cdre, err := NewCDRExporter([]*CDR{cdr1, cdr2, cdr3, cdr4}, cdreCfg,
+		utils.MetaFileFWV, "", "", "fwv_1", true, 1, ',', map[string]float64{},
+		0.0, cfg.GeneralCfg().RoundingDecimals,
+		cfg.GeneralCfg().HttpSkipTlsVerify, nil, nil)
 	if err != nil {
 		t.Error(err)
 	}

@@ -49,21 +49,21 @@ type v2ActionTriggers []*v2ActionTrigger
 
 func (m *Migrator) migrateCurrentThresholds() (err error) {
 	var ids []string
-	tenant := config.CgrConfig().DefaultTenant
+	tenant := config.CgrConfig().GeneralCfg().DefaultTenant
 	//Thresholds
-	ids, err = m.dmIN.DataDB().GetKeysForPrefix(utils.ThresholdPrefix)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ThresholdPrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
 		idg := strings.TrimPrefix(id, utils.ThresholdPrefix+tenant+":")
-		ths, err := m.dmIN.GetThreshold(tenant, idg, true, utils.NonTransactional)
+		ths, err := m.dmIN.DataManager().GetThreshold(tenant, idg, false, false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		if ths != nil {
 			if m.dryRun != true {
-				if err := m.dmOut.SetThreshold(ths); err != nil {
+				if err := m.dmOut.DataManager().SetThreshold(ths); err != nil {
 					return err
 				}
 				m.stats[utils.Thresholds] += 1
@@ -71,19 +71,19 @@ func (m *Migrator) migrateCurrentThresholds() (err error) {
 		}
 	}
 	//ThresholdProfiles
-	ids, err = m.dmIN.DataDB().GetKeysForPrefix(utils.ThresholdProfilePrefix)
+	ids, err = m.dmIN.DataManager().DataDB().GetKeysForPrefix(utils.ThresholdProfilePrefix)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
 		idg := strings.TrimPrefix(id, utils.ThresholdProfilePrefix+tenant+":")
-		ths, err := m.dmIN.GetThresholdProfile(tenant, idg, true, utils.NonTransactional)
+		ths, err := m.dmIN.DataManager().GetThresholdProfile(tenant, idg, false, false, utils.NonTransactional)
 		if err != nil {
 			return err
 		}
 		if ths != nil {
 			if m.dryRun != true {
-				if err := m.dmOut.SetThresholdProfile(ths, true); err != nil {
+				if err := m.dmOut.DataManager().SetThresholdProfile(ths, true); err != nil {
 					return err
 				}
 			}
@@ -95,7 +95,7 @@ func (m *Migrator) migrateCurrentThresholds() (err error) {
 func (m *Migrator) migrateV2ActionTriggers() (err error) {
 	var v2ACT *v2ActionTrigger
 	for {
-		v2ACT, err = m.oldDataDB.getV2ActionTrigger()
+		v2ACT, err = m.dmIN.getV2ActionTrigger()
 		if err != nil && err != utils.ErrNoMoreData {
 			return err
 		}
@@ -108,13 +108,13 @@ func (m *Migrator) migrateV2ActionTriggers() (err error) {
 				return err
 			}
 			if m.dryRun != true {
-				if err := m.dmOut.SetFilter(filter); err != nil {
+				if err := m.dmOut.DataManager().SetFilter(filter); err != nil {
 					return err
 				}
-				if err := m.dmOut.SetThreshold(th); err != nil {
+				if err := m.dmOut.DataManager().SetThreshold(th); err != nil {
 					return err
 				}
-				if err := m.dmOut.SetThresholdProfile(thp, true); err != nil {
+				if err := m.dmOut.DataManager().SetThresholdProfile(thp, true); err != nil {
 					return err
 				}
 				m.stats[utils.Thresholds] += 1
@@ -124,7 +124,43 @@ func (m *Migrator) migrateV2ActionTriggers() (err error) {
 	if m.dryRun != true {
 		// All done, update version wtih current one
 		vrs := engine.Versions{utils.Thresholds: engine.CurrentStorDBVersions()[utils.Thresholds]}
-		if err = m.dmOut.DataDB().SetVersions(vrs, false); err != nil {
+		if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
+			return utils.NewCGRError(utils.Migrator,
+				utils.ServerErrorCaps,
+				err.Error(),
+				fmt.Sprintf("error: <%s> when updating Thresholds version into dataDB", err.Error()))
+		}
+	}
+	return
+}
+
+func (m *Migrator) migrateV2Thresholds() (err error) {
+	var v2T *v2Threshold
+	for {
+		v2T, err = m.dmIN.getV2ThresholdProfile()
+		if err != nil && err != utils.ErrNoMoreData {
+			return err
+		}
+		if err == utils.ErrNoMoreData {
+			break
+		}
+		if v2T != nil {
+			th := v2T.V2toV3Threshold()
+			if m.dryRun != true {
+				if err = m.dmIN.remV2ThresholdProfile(v2T.Tenant, v2T.ID); err != nil {
+					return err
+				}
+				if err = m.dmOut.DataManager().SetThresholdProfile(th, true); err != nil {
+					return err
+				}
+				m.stats[utils.Thresholds] += 1
+			}
+		}
+	}
+	if m.dryRun != true {
+		// All done, update version wtih current one
+		vrs := engine.Versions{utils.Thresholds: engine.CurrentDataDBVersions()[utils.Thresholds]}
+		if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
 			return utils.NewCGRError(utils.Migrator,
 				utils.ServerErrorCaps,
 				err.Error(),
@@ -137,7 +173,7 @@ func (m *Migrator) migrateV2ActionTriggers() (err error) {
 func (m *Migrator) migrateThresholds() (err error) {
 	var vrs engine.Versions
 	current := engine.CurrentDataDBVersions()
-	vrs, err = m.dmOut.DataDB().GetVersions(utils.TBLVersions)
+	vrs, err = m.dmOut.DataManager().DataDB().GetVersions("")
 	if err != nil {
 		return utils.NewCGRError(utils.Migrator,
 			utils.ServerErrorCaps,
@@ -160,9 +196,10 @@ func (m *Migrator) migrateThresholds() (err error) {
 		return
 
 	case 1:
-		if err := m.migrateV2ActionTriggers(); err != nil {
-			return err
-		}
+		return m.migrateV2ActionTriggers()
+
+	case 2:
+		return m.migrateV2Thresholds()
 	}
 	return
 }
@@ -229,20 +266,25 @@ func (v2ATR v2ActionTrigger) AsThreshold() (thp *engine.ThresholdProfile, th *en
 			filters = append(filters, x)
 		}
 
-		filter = &engine.Filter{Tenant: config.CgrConfig().DefaultTenant, ID: *v2ATR.Balance.ID, Rules: filters}
+		filter = &engine.Filter{
+			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+			ID:     *v2ATR.Balance.ID,
+			Rules:  filters}
 		filterIDS = append(filterIDS, filter.ID)
 
 	}
 	thp = &engine.ThresholdProfile{
-		ID:                 v2ATR.ID,
-		Tenant:             config.CgrConfig().DefaultTenant,
-		Weight:             v2ATR.Weight,
-		ActivationInterval: &utils.ActivationInterval{ActivationTime: v2ATR.ActivationDate, ExpiryTime: v2ATR.ExpirationDate},
-		FilterIDs:          []string{},
-		MinSleep:           v2ATR.MinSleep,
+		ID:     v2ATR.ID,
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		Weight: v2ATR.Weight,
+		ActivationInterval: &utils.ActivationInterval{
+			ActivationTime: v2ATR.ActivationDate,
+			ExpiryTime:     v2ATR.ExpirationDate},
+		FilterIDs: []string{},
+		MinSleep:  v2ATR.MinSleep,
 	}
 	th = &engine.Threshold{
-		Tenant: config.CgrConfig().DefaultTenant,
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
 		ID:     v2ATR.ID,
 	}
 	return thp, th, filter, nil
@@ -250,7 +292,7 @@ func (v2ATR v2ActionTrigger) AsThreshold() (thp *engine.ThresholdProfile, th *en
 
 func (m *Migrator) SasThreshold(v2ATR *engine.ActionTrigger) (err error) {
 	var vrs engine.Versions
-	if m.dmOut.DataDB() == nil {
+	if m.dmOut.DataManager().DataDB() == nil {
 		return utils.NewCGRError(utils.Migrator,
 			utils.MandatoryIEMissingCaps,
 			utils.NoStorDBConnection,
@@ -262,21 +304,21 @@ func (m *Migrator) SasThreshold(v2ATR *engine.ActionTrigger) (err error) {
 			return err
 		}
 		if filter != nil {
-			if err := m.dmOut.SetFilter(filter); err != nil {
+			if err := m.dmOut.DataManager().SetFilter(filter); err != nil {
 				return err
 			}
 		}
-		if err := m.dmOut.SetThreshold(th); err != nil {
+		if err := m.dmOut.DataManager().SetThreshold(th); err != nil {
 			return err
 		}
-		if err := m.dmOut.SetThresholdProfile(thp, true); err != nil {
+		if err := m.dmOut.DataManager().SetThresholdProfile(thp, true); err != nil {
 			return err
 		}
 		m.stats[utils.Thresholds] += 1
 	}
 	// All done, update version wtih current one
 	vrs = engine.Versions{utils.Thresholds: engine.CurrentStorDBVersions()[utils.Thresholds]}
-	if err = m.dmOut.DataDB().SetVersions(vrs, false); err != nil {
+	if err = m.dmOut.DataManager().DataDB().SetVersions(vrs, false); err != nil {
 		return utils.NewCGRError(utils.Migrator,
 			utils.ServerErrorCaps,
 			err.Error(),
@@ -331,17 +373,20 @@ func AsThreshold2(v2ATR engine.ActionTrigger) (thp *engine.ThresholdProfile, th 
 			}
 			filters = append(filters, x)
 		}
-		filter = &engine.Filter{Tenant: config.CgrConfig().DefaultTenant, ID: *v2ATR.Balance.ID, Rules: filters}
+		filter = &engine.Filter{
+			Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+			ID:     *v2ATR.Balance.ID,
+			Rules:  filters}
 		filterIDS = append(filterIDS, filter.ID)
 	}
 	th = &engine.Threshold{
-		Tenant: config.CgrConfig().DefaultTenant,
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
 		ID:     v2ATR.ID,
 	}
 
 	thp = &engine.ThresholdProfile{
 		ID:                 v2ATR.ID,
-		Tenant:             config.CgrConfig().DefaultTenant,
+		Tenant:             config.CgrConfig().GeneralCfg().DefaultTenant,
 		Weight:             v2ATR.Weight,
 		ActivationInterval: &utils.ActivationInterval{ActivationTime: v2ATR.ActivationDate, ExpiryTime: v2ATR.ExpirationDate},
 		FilterIDs:          filterIDS,
@@ -349,4 +394,39 @@ func AsThreshold2(v2ATR engine.ActionTrigger) (thp *engine.ThresholdProfile, th 
 	}
 
 	return thp, th, filter, nil
+}
+
+type v2Threshold struct {
+	Tenant             string
+	ID                 string
+	FilterIDs          []string
+	ActivationInterval *utils.ActivationInterval // Time when this limit becomes active and expires
+	Recurrent          bool
+	MinHits            int
+	MinSleep           time.Duration
+	Blocker            bool    // blocker flag to stop processing on filters matched
+	Weight             float64 // Weight to sort the thresholds
+	ActionIDs          []string
+	Async              bool
+}
+
+func (v2T v2Threshold) V2toV3Threshold() (th *engine.ThresholdProfile) {
+	th = &engine.ThresholdProfile{
+		Tenant:             v2T.Tenant,
+		ID:                 v2T.ID,
+		FilterIDs:          v2T.FilterIDs,
+		ActivationInterval: v2T.ActivationInterval,
+		MinHits:            v2T.MinHits,
+		MinSleep:           v2T.MinSleep,
+		Blocker:            v2T.Blocker,
+		Weight:             v2T.Weight,
+		ActionIDs:          v2T.ActionIDs,
+		Async:              v2T.Async,
+	}
+	if v2T.Recurrent == true {
+		th.MaxHits = -1
+	} else {
+		th.MaxHits = 1
+	}
+	return
 }

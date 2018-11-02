@@ -20,19 +20,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
-	"flag"
-	"github.com/cgrates/cgrates/config"
-	"github.com/cgrates/cgrates/utils"
 	"log"
 	"path"
 	"testing"
+
+	"github.com/cgrates/cgrates/config"
+	"github.com/cgrates/cgrates/utils"
 )
 
 var (
-	storageDb       Storage
-	dm3             *DataManager
-	dbtype          string
-	loadHistorySize = flag.Int("load_history_size", config.CgrConfig().LoadHistorySize, "Limit the number of records in the load history")
+	storageDb Storage
+	dm3       *DataManager
+	dbtype    string
 )
 
 var sTestsITVersions = []func(t *testing.T){
@@ -46,15 +45,21 @@ func TestVersionsITMongo(t *testing.T) {
 	if cfg, err = config.NewCGRConfigFromFolder(path.Join(*dataDir, "conf", "samples", "tutmongo")); err != nil {
 		t.Fatal(err)
 	}
-	if dm3, err = ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost,
-		cfg.DataDbPort, cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass,
-		cfg.DBDataEncoding, cfg.CacheCfg(), *loadHistorySize); err != nil {
+	if dm3, err = ConfigureDataStorage(cfg.DataDbCfg().DataDbType,
+		cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort,
+		cfg.DataDbCfg().DataDbName, cfg.DataDbCfg().DataDbUser,
+		cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
+		cfg.CacheCfg(), ""); err != nil {
 		log.Fatal(err)
 	}
-	storageDb, err = ConfigureStorStorage(cfg.StorDBType, cfg.StorDBHost,
-		cfg.StorDBPort, cfg.StorDBName, cfg.StorDBUser, cfg.StorDBPass, cfg.DBDataEncoding,
-		config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns,
-		config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
+	storageDb, err = ConfigureStorStorage(cfg.StorDbCfg().StorDBType,
+		cfg.StorDbCfg().StorDBHost, cfg.StorDbCfg().StorDBPort,
+		cfg.StorDbCfg().StorDBName, cfg.StorDbCfg().StorDBUser,
+		cfg.StorDbCfg().StorDBPass, cfg.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().StorDbCfg().StorDBMaxOpenConns,
+		config.CgrConfig().StorDbCfg().StorDBMaxIdleConns,
+		config.CgrConfig().StorDbCfg().StorDBConnMaxLifetime,
+		config.CgrConfig().StorDbCfg().StorDBCDRSIndexes)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -69,16 +74,22 @@ func TestVersionsITRedisMYSQL(t *testing.T) {
 	if cfg, err = config.NewCGRConfigFromFolder(path.Join(*dataDir, "conf", "samples", "tutmysql")); err != nil {
 		t.Fatal(err)
 	}
-	dm3, err = ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
-		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), *loadHistorySize)
+	dm3, err = ConfigureDataStorage(cfg.DataDbCfg().DataDbType,
+		cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort,
+		cfg.DataDbCfg().DataDbName, cfg.DataDbCfg().DataDbUser,
+		cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding, cfg.CacheCfg(), "")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	storageDb, err = ConfigureStorStorage(cfg.StorDBType, cfg.StorDBHost, cfg.StorDBPort,
-		cfg.StorDBName, cfg.StorDBUser, cfg.StorDBPass, cfg.DBDataEncoding,
-		config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns,
-		config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
+	storageDb, err = ConfigureStorStorage(cfg.StorDbCfg().StorDBType,
+		cfg.StorDbCfg().StorDBHost, cfg.StorDbCfg().StorDBPort,
+		cfg.StorDbCfg().StorDBName, cfg.StorDbCfg().StorDBUser,
+		cfg.StorDbCfg().StorDBPass, cfg.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().StorDbCfg().StorDBMaxOpenConns,
+		config.CgrConfig().StorDbCfg().StorDBMaxIdleConns,
+		config.CgrConfig().StorDbCfg().StorDBConnMaxLifetime,
+		config.CgrConfig().StorDbCfg().StorDBCDRSIndexes)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -93,15 +104,21 @@ func TestVersionsITRedisPostgres(t *testing.T) {
 	if cfg, err = config.NewCGRConfigFromFolder(path.Join(*dataDir, "conf", "samples", "storage", "postgres")); err != nil {
 		t.Fatal(err)
 	}
-	dm3, err = ConfigureDataStorage(cfg.DataDbType, cfg.DataDbHost, cfg.DataDbPort,
-		cfg.DataDbName, cfg.DataDbUser, cfg.DataDbPass, cfg.DBDataEncoding, cfg.CacheCfg(), *loadHistorySize)
+	dm3, err = ConfigureDataStorage(cfg.DataDbCfg().DataDbType,
+		cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort,
+		cfg.DataDbCfg().DataDbName, cfg.DataDbCfg().DataDbUser,
+		cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding, cfg.CacheCfg(), "")
 	if err != nil {
 		log.Fatal(err)
 	}
-	storageDb, err = ConfigureStorStorage(cfg.StorDBType, cfg.StorDBHost,
-		cfg.StorDBPort, cfg.StorDBName, cfg.StorDBUser, cfg.StorDBPass, cfg.DBDataEncoding,
-		config.CgrConfig().StorDBMaxOpenConns, config.CgrConfig().StorDBMaxIdleConns,
-		config.CgrConfig().StorDBConnMaxLifetime, config.CgrConfig().StorDBCDRSIndexes)
+	storageDb, err = ConfigureStorStorage(cfg.StorDbCfg().StorDBType,
+		cfg.StorDbCfg().StorDBHost, cfg.StorDbCfg().StorDBPort,
+		cfg.StorDbCfg().StorDBName, cfg.StorDbCfg().StorDBUser,
+		cfg.StorDbCfg().StorDBPass, cfg.GeneralCfg().DBDataEncoding,
+		config.CgrConfig().StorDbCfg().StorDBMaxOpenConns,
+		config.CgrConfig().StorDbCfg().StorDBMaxIdleConns,
+		config.CgrConfig().StorDbCfg().StorDBConnMaxLifetime,
+		config.CgrConfig().StorDbCfg().StorDBCDRSIndexes)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -117,7 +134,7 @@ func testVersionsFlush(t *testing.T) {
 	if err != nil {
 		t.Error("Error when flushing Mongo ", err.Error())
 	}
-	if err := storageDb.Flush(path.Join(cfg.DataFolderPath, "storage", cfg.StorDBType)); err != nil {
+	if err := storageDb.Flush(path.Join(cfg.DataFolderPath, "storage", cfg.StorDbCfg().StorDBType)); err != nil {
 		t.Error(err)
 	}
 }
@@ -153,13 +170,13 @@ func testVersion(t *testing.T) {
 	}
 
 	//dataDB
-	if _, rcvErr := dm3.DataDB().GetVersions(utils.TBLVersions); rcvErr != utils.ErrNotFound {
+	if _, rcvErr := dm3.DataDB().GetVersions(""); rcvErr != utils.ErrNotFound {
 		t.Error(rcvErr)
 	}
 	if err := CheckVersions(dm3.DataDB()); err != nil {
 		t.Error(err)
 	}
-	if rcv, err := dm3.DataDB().GetVersions(utils.TBLVersions); err != nil {
+	if rcv, err := dm3.DataDB().GetVersions(""); err != nil {
 		t.Error(err)
 	} else if len(currentVersion) != len(rcv) {
 		t.Errorf("Expecting: %v, received: %v", currentVersion, rcv)
@@ -167,7 +184,7 @@ func testVersion(t *testing.T) {
 	if err = dm3.DataDB().RemoveVersions(currentVersion); err != nil {
 		t.Error(err)
 	}
-	if _, rcvErr := dm3.DataDB().GetVersions(utils.TBLVersions); rcvErr != utils.ErrNotFound {
+	if _, rcvErr := dm3.DataDB().GetVersions(""); rcvErr != utils.ErrNotFound {
 		t.Error(rcvErr)
 	}
 	if err := dm3.DataDB().SetVersions(testVersion, false); err != nil {
@@ -189,7 +206,7 @@ func testVersion(t *testing.T) {
 	case utils.POSTGRES, utils.MYSQL:
 		currentVersion = storDbVersions
 		testVersion = allVersions
-		testVersion[utils.COST_DETAILS] = 1
+		testVersion[utils.CostDetails] = 1
 		test = "Migration needed: please backup cgr data and run : <cgr-migrator -migrate=*cost_details>"
 	}
 	//storageDb
@@ -197,7 +214,7 @@ func testVersion(t *testing.T) {
 	if err := CheckVersions(storageDb); err != nil {
 		t.Error(err)
 	}
-	if rcv, err := storageDb.GetVersions(utils.TBLVersions); err != nil {
+	if rcv, err := storageDb.GetVersions(""); err != nil {
 		t.Error(err)
 	} else if len(currentVersion) != len(rcv) {
 		t.Errorf("Expecting: %v, received: %v", currentVersion, rcv)
@@ -205,7 +222,7 @@ func testVersion(t *testing.T) {
 	if err = storageDb.RemoveVersions(currentVersion); err != nil {
 		t.Error(err)
 	}
-	if _, rcvErr := storageDb.GetVersions(utils.TBLVersions); rcvErr != utils.ErrNotFound {
+	if _, rcvErr := storageDb.GetVersions(""); rcvErr != utils.ErrNotFound {
 		t.Error(rcvErr)
 	}
 	if err := storageDb.SetVersions(testVersion, false); err != nil {

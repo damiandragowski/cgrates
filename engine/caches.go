@@ -19,6 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package engine
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/utils"
 	"github.com/cgrates/ltcache"
@@ -55,10 +58,11 @@ var precachedPartitions = []string{
 	utils.CacheFilters,
 	utils.CacheSupplierProfiles,
 	utils.CacheAttributeProfiles,
+	utils.CacheChargerProfiles,
 }
 
 // InitCache will instantiate the cache with specific or default configuraiton
-func InitCache(cfg config.CacheConfig) {
+func InitCache(cfg config.CacheCfg) {
 	if cfg == nil {
 		cfg = config.CgrConfig().CacheCfg()
 	}
@@ -106,5 +110,111 @@ func (chS *CacheS) Precache() (err error) {
 		}
 		close(chS.pcItems[cacheID])
 	}
+	return
+}
+
+type ArgsGetCacheItemIDs struct {
+	CacheID      string
+	ItemIDPrefix string
+}
+
+func (chS *CacheS) V1GetItemIDs(args *ArgsGetCacheItemIDs,
+	reply *[]string) (err error) {
+	if itmIDs := Cache.GetItemIDs(args.CacheID, args.ItemIDPrefix); len(itmIDs) == 0 {
+		return utils.ErrNotFound
+	} else {
+		*reply = itmIDs
+	}
+	return
+}
+
+type ArgsGetCacheItem struct {
+	CacheID string
+	ItemID  string
+}
+
+func (chS *CacheS) V1HasItem(args *ArgsGetCacheItem,
+	reply *bool) (err error) {
+	*reply = Cache.HasItem(args.CacheID, args.ItemID)
+	return
+}
+
+func (chS *CacheS) V1GetItemExpiryTime(args *ArgsGetCacheItem,
+	reply *time.Time) (err error) {
+	if expTime, has := Cache.GetItemExpiryTime(args.CacheID, args.ItemID); !has {
+		return utils.ErrNotFound
+	} else {
+		*reply = expTime
+	}
+	return
+}
+
+func (chS *CacheS) V1RemoveItem(args *ArgsGetCacheItem,
+	reply *string) (err error) {
+	Cache.Remove(args.CacheID, args.ItemID, true, utils.NonTransactional)
+	*reply = utils.OK
+	return
+}
+
+func (chS *CacheS) V1Clear(cacheIDs []string,
+	reply *string) (err error) {
+	Cache.Clear(cacheIDs)
+	*reply = utils.OK
+	return
+}
+
+func (chS *CacheS) V1GetCacheStats(cacheIDs []string,
+	rply *map[string]*ltcache.CacheStats) (err error) {
+	cs := Cache.GetCacheStats(cacheIDs)
+	*rply = cs
+	return
+}
+
+func (chS *CacheS) V1PrecacheStatus(cacheIDs []string, rply *map[string]string) (err error) {
+	if len(cacheIDs) == 0 {
+		for _, cacheID := range precachedPartitions {
+			cacheIDs = append(cacheIDs, cacheID)
+		}
+	}
+	pCacheStatus := make(map[string]string)
+	for _, cacheID := range cacheIDs {
+		if _, has := chS.pcItems[cacheID]; !has {
+			return fmt.Errorf("unknown cacheID: %s", cacheID)
+		}
+		select {
+		case <-chS.GetPrecacheChannel(cacheID):
+			pCacheStatus[cacheID] = utils.MetaReady
+		default:
+			pCacheStatus[cacheID] = utils.MetaPrecaching
+		}
+	}
+	*rply = pCacheStatus
+	return
+}
+
+type ArgsGetGroup struct {
+	CacheID string
+	GroupID string
+}
+
+func (chS *CacheS) V1HasGroup(args *ArgsGetGroup,
+	rply *bool) (err error) {
+	*rply = Cache.HasGroup(args.CacheID, args.GroupID)
+	return
+}
+
+func (chS *CacheS) V1GetGroupItemIDs(args *ArgsGetGroup,
+	rply *[]string) (err error) {
+	if has := Cache.HasGroup(args.CacheID, args.GroupID); !has {
+		return utils.ErrNotFound
+	}
+	*rply = Cache.GetGroupItemIDs(args.CacheID, args.GroupID)
+	return
+}
+
+func (chS *CacheS) V1RemoveGroup(args *ArgsGetGroup,
+	rply *string) (err error) {
+	Cache.RemoveGroup(args.CacheID, args.GroupID, true, utils.NonTransactional)
+	*rply = utils.OK
 	return
 }

@@ -63,10 +63,11 @@ RP_UK,DR_UK_Mobile_BIG5,ALWAYS,10`
 	filters := ``
 	suppliers := ``
 	aliasProfiles := ``
+	chargerProfiles := ``
 	csvr := engine.NewTpReader(dataDB3.DataDB(), engine.NewStringCSVStorage(',', destinations, timings, rates,
 		destinationRates, ratingPlans, ratingProfiles, sharedGroups, lcrs, actions, actionPlans, actionTriggers,
 		accountActions, derivedCharges, cdrStats, users, aliases, resLimits, stats,
-		thresholds, filters, suppliers, aliasProfiles), "", "")
+		thresholds, filters, suppliers, aliasProfiles, chargerProfiles), "", "")
 	if err := csvr.LoadDestinations(); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ RP_UK,DR_UK_Mobile_BIG5,ALWAYS,10`
 		t.Error("No account saved")
 	}
 	engine.Cache.Clear(nil)
-	dataDB3.LoadDataDBCache(nil, nil, nil, nil,
+	dataDB3.LoadDataDBCache(nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 

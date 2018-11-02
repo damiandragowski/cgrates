@@ -223,27 +223,40 @@ func TestStringToInterface(t *testing.T) {
 	}
 }
 
-func TestCastFieldIfToString(t *testing.T) {
+func TestIfaceAsString(t *testing.T) {
 	val := interface{}("string1")
-	if resVal, converted := CastFieldIfToString(val); !converted || resVal != "string1" {
-		t.Error(resVal, converted)
+	if rply, err := IfaceAsString(val); err != nil {
+		t.Error(err)
+	} else if rply != "string1" {
+		t.Errorf("Expeced string1 ,recived %+v", rply)
 	}
 	val = interface{}(123)
-	if resVal, converted := CastFieldIfToString(val); !converted || resVal != "123" {
-		t.Error(resVal, converted)
+	if rply, err := IfaceAsString(val); err != nil {
+		t.Error(err)
+	} else if rply != "123" {
+		t.Errorf("Expeced 123 ,recived %+v", rply)
 	}
 	val = interface{}([]byte("byte_val"))
-	if resVal, converted := CastFieldIfToString(val); !converted || resVal != "byte_val" {
-		t.Error(resVal, converted)
+	if rply, err := IfaceAsString(val); err != nil {
+		t.Error(err)
+	} else if rply != "byte_val" {
+		t.Errorf("Expeced byte_val ,recived %+v", rply)
 	}
 	val = interface{}(true)
-	if resVal, converted := CastFieldIfToString(val); !converted || resVal != "true" {
-		t.Error(resVal, converted)
+	if rply, err := IfaceAsString(val); err != nil {
+		t.Error(err)
+	} else if rply != "true" {
+		t.Errorf("Expeced true ,recived %+v", rply)
 	}
-	if strVal, cast := CastFieldIfToString(time.Duration(1 * time.Second)); !cast {
-		t.Error("cannot cast time.Duration")
-	} else if strVal != "1s" {
-		t.Errorf("received: %s", strVal)
+	if rply, err := IfaceAsString(time.Duration(1 * time.Second)); err != nil {
+		t.Error(err)
+	} else if rply != "1s" {
+		t.Errorf("Expeced 1s ,recived %+v", rply)
+	}
+	if rply, err := IfaceAsString(nil); err != nil {
+		t.Error(err)
+	} else if rply != "" {
+		t.Errorf("Expeced  ,recived %+v", rply)
 	}
 }
 
@@ -274,12 +287,17 @@ func TestIfaceAsDuration(t *testing.T) {
 	} else if eItm != itmConvert {
 		t.Errorf("received: %+v", itmConvert)
 	}
-	if itmConvert, err := IfaceAsDuration(interface{}(float64(1.0))); err != nil {
+	if itmConvert, err := IfaceAsDuration(interface{}(float64(1000000000.0))); err != nil {
 		t.Error(err)
 	} else if eItm != itmConvert {
 		t.Errorf("received: %+v", itmConvert)
 	}
 	if itmConvert, err := IfaceAsDuration(interface{}(int64(1000000000))); err != nil {
+		t.Error(err)
+	} else if eItm != itmConvert {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	if itmConvert, err := IfaceAsDuration(interface{}(int(1000000000))); err != nil {
 		t.Error(err)
 	} else if eItm != itmConvert {
 		t.Errorf("received: %+v", itmConvert)
@@ -323,5 +341,117 @@ func TestIfaceAsFloat64(t *testing.T) {
 	val = interface{}("This is not a float")
 	if _, err := IfaceAsFloat64(val); err == nil {
 		t.Error("expecting error")
+	}
+}
+
+func TestIfaceAsInt64(t *testing.T) {
+	eInt := int64(3)
+	val := interface{}(3)
+	if itmConvert, err := IfaceAsInt64(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != eInt {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}(time.Duration(3))
+	if itmConvert, err := IfaceAsInt64(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != eInt {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}("3")
+	if itmConvert, err := IfaceAsInt64(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != eInt {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}(int64(3))
+	if itmConvert, err := IfaceAsInt64(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != eInt {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}("This is not an integer")
+	if _, err := IfaceAsInt64(val); err == nil {
+		t.Error("expecting error")
+	}
+}
+
+func TestIfaceAsBool(t *testing.T) {
+	val := interface{}(true)
+	if itmConvert, err := IfaceAsBool(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != true {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}("true")
+	if itmConvert, err := IfaceAsBool(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != true {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}(0)
+	if itmConvert, err := IfaceAsBool(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != false {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}(1)
+	if itmConvert, err := IfaceAsBool(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != true {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}(0.0)
+	if itmConvert, err := IfaceAsBool(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != false {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}(1.0)
+	if itmConvert, err := IfaceAsBool(val); err != nil {
+		t.Error(err)
+	} else if itmConvert != true {
+		t.Errorf("received: %+v", itmConvert)
+	}
+	val = interface{}("This is not a bool")
+	if _, err := IfaceAsBool(val); err == nil {
+		t.Error("expecting error")
+	}
+}
+
+func TestSum(t *testing.T) {
+	if _, err := GreaterThan(1, 1.2, false); err == nil || err.Error() != "incomparable" {
+		t.Error(err)
+	}
+	if _, err := GreaterThan(struct{}{},
+		map[string]interface{}{"a": "a"}, false); err == nil || err.Error() != "incomparable" {
+		t.Error(err)
+	}
+	if sum, err := Sum(1.2, 1.2); err != nil {
+		t.Error(err)
+	} else if sum != 2.4 {
+		t.Errorf("Expecting: 2.4, received: %+v", sum)
+	}
+	if sum, err := Sum(2, 4); err != nil {
+		t.Error(err)
+	} else if sum != int64(6) {
+		t.Errorf("Expecting: 6, received: %+v", sum)
+	}
+	if sum, err := Sum(0.5, 1.23); err != nil {
+		t.Error(err)
+	} else if sum != 1.73 {
+		t.Errorf("Expecting: 1.73, received: %+v", sum)
+	}
+	if sum, err := Sum(time.Duration(2*time.Second),
+		time.Duration(1*time.Second)); err != nil {
+		t.Error(err)
+	} else if sum != time.Duration(3*time.Second) {
+		t.Errorf("Expecting: 3s, received: %+v", sum)
+	}
+	if sum, err := Sum(time.Duration(2*time.Second),
+		time.Duration(10*time.Millisecond)); err != nil {
+		t.Error(err)
+	} else if sum != time.Duration(2*time.Second+10*time.Millisecond) {
+		t.Errorf("Expecting: 2s10ms, received: %+v", sum)
 	}
 }

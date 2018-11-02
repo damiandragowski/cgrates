@@ -72,7 +72,7 @@ func (srvMngr *ServiceManager) StartScheduler(waitCache bool) error {
 		srvMngr.Lock()
 		srvMngr.sched = nil // if we are after loop, the service is down
 		srvMngr.Unlock()
-		if srvMngr.cfg.SchedulerEnabled {
+		if srvMngr.cfg.SchedulerCfg().Enabled {
 			srvMngr.engineShutdown <- true // shutdown engine since this service should be running
 		}
 	}()
@@ -93,7 +93,8 @@ func (srvMngr *ServiceManager) StopScheduler() error {
 			utils.ServiceNotRunning,
 			"the scheduler is not running")
 	}
-	srvMngr.cfg.SchedulerEnabled = false
+	utils.Logger.Info("<ServiceManager> Stoping CGRateS Scheduler.")
+	srvMngr.cfg.SchedulerCfg().Enabled = false
 	sched.Shutdown()
 	return nil
 }

@@ -36,7 +36,6 @@ func TestFilterMatchingItemIDsForEvent(t *testing.T) {
 	var stringFilter, prefixFilter, defaultFilter []*FilterRule
 	stringFilterID := "stringFilterID"
 	prefixFilterID := "prefixFilterID"
-	defaultFilterID := "defaultFilterID"
 	data, _ := NewMapStorage()
 	dmMatch = NewDataManager(data)
 	context := utils.MetaRating
@@ -45,30 +44,35 @@ func TestFilterMatchingItemIDsForEvent(t *testing.T) {
 		t.Errorf("Error: %+v", err)
 	}
 	stringFilter = append(stringFilter, x)
-	attribStringF := &Filter{Tenant: config.CgrConfig().DefaultTenant,
-		ID: "stringFilter", Rules: stringFilter}
+	attribStringF := &Filter{
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		ID:     "stringFilter",
+		Rules:  stringFilter}
 	dmMatch.SetFilter(attribStringF)
 	x, err = NewFilterRule(MetaPrefix, "Field", []string{"profilePrefix"})
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
 	prefixFilter = append(prefixFilter, x)
-	attribPrefF := &Filter{Tenant: config.CgrConfig().DefaultTenant,
-		ID: "prefFilter", Rules: prefixFilter}
+	attribPrefF := &Filter{
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		ID:     "prefFilter",
+		Rules:  prefixFilter}
 	dmMatch.SetFilter(attribPrefF)
 	x, err = NewFilterRule(MetaGreaterOrEqual, "Weight", []string{"200.00"})
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
 	defaultFilter = append(defaultFilter, x)
-	attribDefaultF := &Filter{Tenant: config.CgrConfig().DefaultTenant,
-		ID: "defaultFilter", Rules: defaultFilter}
+	attribDefaultF := &Filter{
+		Tenant: config.CgrConfig().GeneralCfg().DefaultTenant,
+		ID:     "defaultFilter",
+		Rules:  defaultFilter}
 	dmMatch.SetFilter(attribDefaultF)
-	prefix := utils.ConcatenatedKey(config.CgrConfig().DefaultTenant, context)
+	prefix := utils.ConcatenatedKey(config.CgrConfig().GeneralCfg().DefaultTenant, context)
 	atrRFI := NewFilterIndexer(dmMatch, utils.AttributeProfilePrefix, prefix)
 	atrRFI.IndexTPFilter(FilterToTPFilter(attribStringF), stringFilterID)
 	atrRFI.IndexTPFilter(FilterToTPFilter(attribPrefF), prefixFilterID)
-	atrRFI.IndexTPFilter(FilterToTPFilter(attribDefaultF), defaultFilterID)
 	err = atrRFI.StoreIndexes(true, utils.NonTransactional)
 	if err != nil {
 		t.Errorf("Error: %+v", err)
@@ -78,7 +82,7 @@ func TestFilterMatchingItemIDsForEvent(t *testing.T) {
 		"Field":          "profile",
 	}
 	aPrflIDs, err := matchingItemIDsForEvent(matchEV, nil, nil,
-		dmMatch, utils.CacheAttributeFilterIndexes, prefix)
+		dmMatch, utils.CacheAttributeFilterIndexes, prefix, true)
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
@@ -90,24 +94,12 @@ func TestFilterMatchingItemIDsForEvent(t *testing.T) {
 		"Field": "profilePrefix",
 	}
 	aPrflIDs, err = matchingItemIDsForEvent(matchEV, nil, nil,
-		dmMatch, utils.CacheAttributeFilterIndexes, prefix)
+		dmMatch, utils.CacheAttributeFilterIndexes, prefix, true)
 	if err != nil {
 		t.Errorf("Error: %+v", err)
 	}
 	_, has = aPrflIDs[prefixFilterID]
 	if !has {
 		t.Errorf("Expecting: %+v, received: %+v", prefixFilterID, aPrflIDs)
-	}
-	matchEV = map[string]interface{}{
-		"Weight": "200",
-	}
-	aPrflIDs, err = matchingItemIDsForEvent(matchEV, nil, nil,
-		dmMatch, utils.CacheAttributeFilterIndexes, prefix)
-	if err != nil {
-		t.Errorf("Error: %+v", err)
-	}
-	_, has = aPrflIDs[defaultFilterID]
-	if !has {
-		t.Errorf("Expecting: %+v, received: %+v", defaultFilterID, aPrflIDs)
 	}
 }

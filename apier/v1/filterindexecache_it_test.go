@@ -83,8 +83,10 @@ var sTestsFilterIndexesSV1Ca = []func(t *testing.T){
 // Test start here
 func TestFIdxCaV1ITMySQL(t *testing.T) {
 	cfg, _ := config.NewDefaultCGRConfig()
-	rdsITdb, err := engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
+	rdsITdb, err := engine.NewRedisStorage(
+		fmt.Sprintf("%s:%s", cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort),
+		10, cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
+		utils.REDIS_MAX_CONNS, nil, "")
 	if err != nil {
 		t.Fatal("Could not connect to Redis", err.Error())
 	}
@@ -101,9 +103,10 @@ func TestFIdxCaV1ITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgoITdb, err := engine.NewMongoStorage(mgoITCfg.DataDbHost, mgoITCfg.DataDbPort,
-		mgoITCfg.DataDbName, mgoITCfg.DataDbUser, mgoITCfg.DataDbPass,
-		utils.DataDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize)
+	mgoITdb, err := engine.NewMongoStorage(mgoITCfg.DataDbCfg().DataDbHost,
+		mgoITCfg.DataDbCfg().DataDbPort, mgoITCfg.DataDbCfg().DataDbName,
+		mgoITCfg.DataDbCfg().DataDbUser, mgoITCfg.DataDbCfg().DataDbPass,
+		utils.DataDB, nil, mgoITCfg.CacheCfg())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +153,7 @@ func testV1FIdxCaStartEngine(t *testing.T) {
 
 func testV1FIdxCaRpcConn(t *testing.T) {
 	var err error
-	tFIdxCaRpc, err = jsonrpc.Dial("tcp", tSv1Cfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	tFIdxCaRpc, err = jsonrpc.Dial("tcp", tSv1Cfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -158,7 +161,7 @@ func testV1FIdxCaRpcConn(t *testing.T) {
 
 func testV1FIdxCaFromFolder(t *testing.T) {
 	var reply string
-	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}
+	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "oldtutorial")}
 	if err := tFIdxCaRpc.Call("ApierV1.LoadTariffPlanFromFolder", attrs, &reply); err != nil {
 		t.Error(err)
 	}
@@ -174,12 +177,8 @@ func testV1FIdxCaProcessEventWithNotFound(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.EventType: utils.BalanceUpdate,
 				utils.Account:   "1001"}}}
-	var hits int
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &hits); err.Error() != utils.ErrNotFound.Error() {
-		t.Error(err)
-	}
-	if indexes, err = onStor.GetFilterReverseIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
-		"cgrates.org", nil); err == nil || err != utils.ErrNotFound {
+	var thIDs []string
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 }
@@ -189,12 +188,12 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "TestFilter",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1001"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.EventType,
 				Type:      "*string",
 				Values:    []string{utils.BalanceUpdate},
@@ -217,12 +216,12 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 		ActivationInterval: &utils.ActivationInterval{
 			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
-		MinHits:   1,
-		Recurrent: true,
-		MinSleep:  time.Duration(5 * time.Minute),
-		Blocker:   false,
-		Weight:    20.0,
-		Async:     true,
+		MinHits:  1,
+		MaxHits:  -1,
+		MinSleep: time.Duration(5 * time.Minute),
+		Blocker:  false,
+		Weight:   20.0,
+		Async:    true,
 	}
 
 	if err := tFIdxCaRpc.Call("ApierV1.SetThresholdProfile", tPrfl, &result); err != nil {
@@ -239,27 +238,14 @@ func testV1FIdxCaSetThresholdProfile(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.EventType: utils.BalanceUpdate,
 				utils.Account:   "1001"}}}
-	var hits int
-	eHits := 1
+	var thIDs []string
+	eIDs := []string{"TEST_PROFILE1"}
 	//Testing ProcessEvent on set thresholdprofile using apier
 
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &hits); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err != nil {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
-	}
-	//test to make sure indexes are made as expected
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1001": true,
-			"*string:EventType:BalanceUpdate": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		"cgrates.org", fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, indexes)
+	} else if !reflect.DeepEqual(thIDs, eIDs) {
+		t.Errorf("Expecting hits: %s, received: %s", eIDs, thIDs)
 	}
 }
 
@@ -275,31 +261,14 @@ func testV1FIdxCaGetThresholdFromTP(t *testing.T) {
 				utils.Account:   "1001",
 				utils.BalanceID: utils.META_DEFAULT,
 				utils.Units:     12.3}}}
-	var hits int
-	eHits := 1
+	var thIDs []string
+	eIDs := []string{"THD_ACNT_BALANCE_1"}
 	//Testing ProcessEvent on set thresholdprofile using apier
 	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent,
-		tEv, &hits); err != nil {
+		tEv, &thIDs); err != nil {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
-	}
-	//test to make sure indexes are made as expected
-	idx := map[string]utils.StringMap{
-		"THD_ACNT_BALANCE_1": {
-			"*default:*any:*any":              true,
-			"*string:Account:1001":            true,
-			"*string:Account:1002":            true,
-			"*string:EventType:BalanceUpdate": true}}
-	fldNameVal := map[string]string{"THD_ACNT_BALANCE_1": ""}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		"cgrates.org", fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(idx, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			idx, utils.ToJSON(indexes))
+	} else if !reflect.DeepEqual(thIDs, eIDs) {
+		t.Errorf("Expecting hits: %s, received: %s", eIDs, thIDs)
 	}
 }
 
@@ -309,12 +278,12 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "TestFilter2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1002"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.EventType,
 				Type:      "*string",
 				Values:    []string{utils.AccountUpdate},
@@ -336,11 +305,11 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 		ActivationInterval: &utils.ActivationInterval{
 			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
-		Recurrent: true,
-		MinSleep:  time.Duration(5 * time.Minute),
-		Blocker:   false,
-		Weight:    20.0,
-		Async:     true,
+		MaxHits:  -1,
+		MinSleep: time.Duration(5 * time.Minute),
+		Blocker:  false,
+		Weight:   20.0,
+		Async:    true,
 	}
 	if err := tFIdxCaRpc.Call("ApierV1.SetThresholdProfile", tPrfl, &result); err != nil {
 		t.Error(err)
@@ -355,13 +324,12 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.EventType: utils.AccountUpdate,
 				utils.Account:   "1001"}}}
-	var hits int
-	eHits := 0
+	var thIDs []string
+	eIDs := []string{}
 	//Testing ProcessEvent on set thresholdprofile  after update making sure there are no hits
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &hits); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
 	}
 	//matches thresholdprofile after update
 	tEv2 := &engine.ArgsProcessEvent{
@@ -371,26 +339,12 @@ func testV1FIdxCaUpdateThresholdProfile(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.EventType: utils.AccountUpdate,
 				utils.Account:   "1002"}}}
-	eHits = 1
+	eIDs = []string{"TEST_PROFILE1"}
 	//Testing ProcessEvent on set thresholdprofile after update
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &hits); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err != nil {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
-	}
-	//test to make sure indexes are made as expecte
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1002": true,
-			"*string:EventType:AccountUpdate": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		"cgrates.org", fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
+	} else if !reflect.DeepEqual(thIDs, eIDs) {
+		t.Errorf("Expecting : %s, received: %s", eIDs, thIDs)
 	}
 }
 
@@ -400,12 +354,12 @@ func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "TestFilter3",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1003"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.EventType,
 				Type:      "*string",
 				Values:    []string{utils.BalanceUpdate},
@@ -426,8 +380,15 @@ func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 		&utils.TenantID{Tenant: "cgrates.org", ID: "THD_ACNT_BALANCE_1"}, &reply); err != nil {
 		t.Error(err)
 	}
+	time.Sleep(100 * time.Millisecond)
+	if reply == nil {
+		t.Errorf("Expecting reply to not be nil")
+		// reply shoud not be nil so exit function
+		// to avoid nil segmentation fault;
+		// if this happens try to run this test manualy
+		return
+	}
 	reply.FilterIDs = []string{"TestFilter3"}
-	reply.ActivationInterval = &utils.ActivationInterval{ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC)}
 
 	if err := tFIdxCaRpc.Call("ApierV1.SetThresholdProfile", reply, &result); err != nil {
 		t.Error(err)
@@ -442,13 +403,11 @@ func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.Account:   "1002",
 				utils.EventType: utils.BalanceUpdate}}}
-	var hits int
-	eHits := 0
+	var thIDs []string
 	//Testing ProcessEvent on set thresholdprofile using apier
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &hits); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
 	}
 	tEv2 := &engine.ArgsProcessEvent{
 		CGREvent: utils.CGREvent{
@@ -457,25 +416,12 @@ func testV1FIdxCaUpdateThresholdProfileFromTP(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.Account:   "1003",
 				utils.EventType: utils.BalanceUpdate}}}
-	eHits = 1
+	eIDs := []string{"THD_ACNT_BALANCE_1"}
 	//Testing ProcessEvent on set thresholdprofile using apier
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &hits); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err != nil {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
-	}
-	//test to make sure indexes are made as expecte
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1002": true,
-			"*string:EventType:AccountUpdate": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		"cgrates.org", fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, utils.ToJSON(indexes))
+	} else if !reflect.DeepEqual(thIDs, eIDs) {
+		t.Errorf("Expecting : %s, received: %s", eIDs, thIDs)
 	}
 }
 
@@ -488,12 +434,12 @@ func testV1FIdxCaRemoveThresholdProfile(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.Account:   "1002",
 				utils.EventType: utils.AccountUpdate}}}
-	var hits int
-	eHits := 1
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &hits); err != nil {
+	var thIDs []string
+	eIDs := []string{"TEST_PROFILE1"}
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err != nil {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
+	} else if !reflect.DeepEqual(thIDs, eIDs) {
+		t.Errorf("Expecting : %s, received: %s", eIDs, thIDs)
 	}
 
 	tEv2 := &engine.ArgsProcessEvent{
@@ -503,11 +449,11 @@ func testV1FIdxCaRemoveThresholdProfile(t *testing.T) {
 			Event: map[string]interface{}{
 				utils.Account:   "1003",
 				utils.EventType: utils.BalanceUpdate}}}
-	eHits = 1
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &hits); err != nil {
+	eIDs = []string{"THD_ACNT_BALANCE_1"}
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err != nil {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
+	} else if !reflect.DeepEqual(thIDs, eIDs) {
+		t.Errorf("Expecting : %s, received: %s", eIDs, thIDs)
 	}
 	//Remove threshold profile that was set form api
 	if err := tFIdxCaRpc.Call("ApierV1.RemoveThresholdProfile",
@@ -536,30 +482,19 @@ func testV1FIdxCaRemoveThresholdProfile(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	eHits = 0
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &hits); err != nil {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv, &thIDs); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
 	}
-
-	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &hits); err != nil {
-		t.Error(err)
-	} else if hits != eHits {
-		t.Errorf("Expecting hits: %d, received: %d", eHits, hits)
-	}
-	//test to make sure indexes are made as expected
-	fldNameVal2 := map[string]string{"THD_ACNT_BALANCE_1": "", "TEST_PROFILE1": ""}
-	if _, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.ThresholdProfilePrefix], "cgrates.org",
-		fldNameVal2); err == nil || err != utils.ErrNotFound {
+	if err := tFIdxCaRpc.Call(utils.ThresholdSv1ProcessEvent, tEv2, &thIDs); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
 }
 
 //StatQueue
 func testV1FIdxCaGetStatQueuesWithNotFound(t *testing.T) {
-	var reply *string
+	var reply *[]string
 	tEv := &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "event1",
@@ -571,13 +506,6 @@ func testV1FIdxCaGetStatQueuesWithNotFound(t *testing.T) {
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
-	} else if reply != nil && *reply != "" {
-		t.Error("Unexpected reply returned", *reply)
-	}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.StatQueueProfilePrefix], "cgrates.org",
-		nil); err == nil || err != utils.ErrNotFound {
-		t.Error(err)
 	}
 }
 
@@ -587,12 +515,12 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1001"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.EventType,
 				Type:      "*string",
 				Values:    []string{utils.AccountUpdate},
@@ -603,6 +531,7 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 		},
 	}
 	var result string
+
 	if err := tFIdxCaRpc.Call("ApierV1.SetFilter", filter, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
@@ -618,7 +547,7 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 		QueueLength: 10,
 		TTL:         time.Duration(10) * time.Second,
 		Metrics: []*utils.MetricWithParams{
-			&utils.MetricWithParams{
+			{
 				MetricID:   "*sum",
 				Parameters: "Val",
 			},
@@ -643,29 +572,19 @@ func testV1FIdxCaSetStatQueueProfile(t *testing.T) {
 			utils.Account:   "1001",
 		},
 	}
+	var reply []string
+	expected := []string{"TEST_PROFILE1"}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent,
-		tEv, &result); err != nil {
+		tEv, &reply); err != nil {
 		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
-	}
-
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1001": true,
-			"*string:EventType:AccountUpdate": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix], "cgrates.org",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, indexes)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 }
 
 func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
-	var reply string
+	var reply []string
+	expected := []string{"Stats1"}
 	ev2 := utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "event2",
@@ -675,8 +594,8 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 			utils.Usage:      time.Duration(45 * time.Second)}}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &ev2, &reply); err != nil {
 		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("received reply: %s", reply)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 	ev3 := &utils.CGREvent{
 		Tenant: "cgrates.org",
@@ -687,8 +606,8 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 			utils.Usage:     0}}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &ev3, &reply); err != nil {
 		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("received reply: %s", reply)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 
 	tEv := &utils.CGREvent{
@@ -701,8 +620,8 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 		}}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &tEv, &reply); err != nil {
 		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("received reply: %s", reply)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 	tEv2 := &utils.CGREvent{
 		Tenant: "cgrates.org",
@@ -714,23 +633,8 @@ func testV1FIdxCaGetStatQueuesFromTP(t *testing.T) {
 		}}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, &tEv2, &reply); err != nil {
 		t.Error(err)
-	} else if reply != utils.OK {
-		t.Errorf("received reply: %s", reply)
-	}
-
-	idx := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1001": true,
-			"*string:EventType:AccountUpdate": true}}
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix], "cgrates.org",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-
-	if !reflect.DeepEqual(idx, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", idx, utils.ToJSON(indexes))
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 }
 
@@ -739,12 +643,12 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "FLTR_2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
-				Values:    []string{"1002"},
+				Values:    []string{"1003"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.EventType,
 				Type:      "*string",
 				Values:    []string{utils.BalanceUpdate},
@@ -770,7 +674,7 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 		QueueLength: 10,
 		TTL:         time.Duration(10) * time.Second,
 		Metrics: []*utils.MetricWithParams{
-			&utils.MetricWithParams{
+			{
 				MetricID:   "*sum",
 				Parameters: "",
 			},
@@ -786,30 +690,19 @@ func testV1FIdxCaUpdateStatQueueProfile(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
+	var reply []string
+	expected := []string{"TEST_PROFILE1"}
 	tEv := &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "event1",
 		Event: map[string]interface{}{
 			utils.EventType: utils.BalanceUpdate,
-			utils.Account:   "1002",
+			utils.Account:   "1003",
 		}}
-	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err != nil {
 		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
-	}
-
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1002": true,
-			"*string:EventType:BalanceUpdate": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix], "cgrates.org",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, utils.ToJSON(indexes))
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
 }
 
@@ -818,12 +711,12 @@ func testV1FIdxCaUpdateStatQueueProfileFromTP(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "FLTR_3",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1003"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.EventType,
 				Type:      "*string",
 				Values:    []string{utils.AccountUpdate},
@@ -839,13 +732,14 @@ func testV1FIdxCaUpdateStatQueueProfileFromTP(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	var reply *engine.StatQueueProfile
+	var reply engine.StatQueueProfile
 	if err := tFIdxCaRpc.Call("ApierV1.GetStatQueueProfile",
 		&utils.TenantID{Tenant: "cgrates.org", ID: "Stats1"}, &reply); err != nil {
 		t.Error(err)
 	}
-	(*reply).FilterIDs = []string{"FLTR_3"}
-	(*reply).ActivationInterval = &utils.ActivationInterval{ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}
+	time.Sleep(100 * time.Millisecond)
+	reply.FilterIDs = []string{"FLTR_3"}
+	reply.ActivationInterval = &utils.ActivationInterval{ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}
 	if err := tFIdxCaRpc.Call("ApierV1.SetStatQueueProfile",
 		reply, &result); err != nil {
 		t.Error(err)
@@ -859,42 +753,32 @@ func testV1FIdxCaUpdateStatQueueProfileFromTP(t *testing.T) {
 			utils.EventType: utils.AccountUpdate,
 			utils.Account:   "1003",
 		}}
+	var ids []string
+	expected := []string{"Stats1"}
 	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent,
-		tEv, &result); err != nil {
+		tEv, &ids); err != nil {
 		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
-	}
-	fldNameVal := map[string]string{"Stats1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"Stats1": {
-			"*string:Account:1003":            true,
-			"*string:EventType:AccountUpdate": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix], "cgrates.org",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, indexes)
+	} else if !reflect.DeepEqual(ids, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, ids)
 	}
 }
 
 func testV1FIdxCaRemoveStatQueueProfile(t *testing.T) {
-	var result string
+	var reply []string
+	expected := []string{"TEST_PROFILE1"}
 	tEv := &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "event1",
 		Event: map[string]interface{}{
 			utils.EventType: utils.BalanceUpdate,
-			utils.Account:   "1002",
+			utils.Account:   "1003",
 		}}
-	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err != nil {
 		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
-
+	expected = []string{"Stats1"}
 	tEv2 := &utils.CGREvent{
 		Tenant: "cgrates.org",
 		ID:     "event1",
@@ -902,11 +786,12 @@ func testV1FIdxCaRemoveStatQueueProfile(t *testing.T) {
 			utils.EventType: utils.AccountUpdate,
 			utils.Account:   "1003",
 		}}
-	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv2, &result); err != nil {
+	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv2, &reply); err != nil {
 		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
 	}
+	var result string
 	//Remove threshold profile that was set form api
 	if err := tFIdxCaRpc.Call("ApierV1.RemStatQueueProfile",
 		&utils.TenantID{Tenant: "cgrates.org", ID: "TEST_PROFILE1"}, &result); err != nil {
@@ -935,22 +820,12 @@ func testV1FIdxCaRemoveStatQueueProfile(t *testing.T) {
 		t.Error(err)
 	}
 
-	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &result); err == nil ||
+	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv, &reply); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
 	}
-	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv2, &result); err == nil ||
+	if err := tFIdxCaRpc.Call(utils.StatSv1ProcessEvent, tEv2, &reply); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
-		t.Error(err)
-	} else if result != utils.OK {
-		t.Error("Unexpected reply returned", result)
-	}
-	fldNameVals := map[string]string{"THD_ACNT_BALANCE_1": "", "TEST_PROFILE1": ""}
-	if _, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.ThresholdProfilePrefix], "cgrates.org",
-		fldNameVals); err == nil || err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }
@@ -971,11 +846,6 @@ func testV1FIdxCaProcessAttributeProfileEventWithNotFound(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.ThresholdProfilePrefix], "cgrates.org",
-		nil); err == nil || err != utils.ErrNotFound {
-		t.Error(err)
-	}
 }
 
 func testV1FIdxCaSetAttributeProfile(t *testing.T) {
@@ -983,12 +853,12 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "TestFilter",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1009"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Destination,
 				Type:      "*string",
 				Values:    []string{"+491511231234"},
@@ -1013,16 +883,16 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
 		Attributes: []*engine.Attribute{
-			&engine.Attribute{
+			{
 				FieldName:  utils.Account,
 				Initial:    utils.META_ANY,
-				Substitute: "1001",
+				Substitute: config.NewRSRParsersMustCompile("1001", true),
 				Append:     false,
 			},
-			&engine.Attribute{
+			{
 				FieldName:  utils.Subject,
 				Initial:    utils.META_ANY,
-				Substitute: "1001",
+				Substitute: config.NewRSRParsersMustCompile("1001", true),
 				Append:     true,
 			},
 		},
@@ -1048,20 +918,6 @@ func testV1FIdxCaSetAttributeProfile(t *testing.T) {
 		ev, &rplyEv); err != nil {
 		t.Error(err)
 	}
-	//test to make sure indexes are made as expected
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1009": true,
-			"*string:Destination:+491511231234": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		"cgrates.org:*sessions",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, indexes)
-	}
 }
 
 func testV1FIdxCaGetAttributeProfileFromTP(t *testing.T) {
@@ -1079,19 +935,6 @@ func testV1FIdxCaGetAttributeProfileFromTP(t *testing.T) {
 	if err := tFIdxCaRpc.Call(utils.AttributeSv1ProcessEvent, ev, &rplyEv); err != nil {
 		t.Error(err)
 	}
-	//test to make sure indexes are made as expected
-	idx := map[string]utils.StringMap{"ATTR_1": {
-		"*string:Account:1007": true}}
-	fldNameVal := map[string]string{"ATTR_1": ""}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		"cgrates.org:*sessions",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(idx, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", idx, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
@@ -1099,12 +942,12 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "TestFilter2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"2009"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Destination,
 				Type:      "*string",
 				Values:    []string{"+492511231234"},
@@ -1129,16 +972,16 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
 		Attributes: []*engine.Attribute{
-			&engine.Attribute{
+			{
 				FieldName:  utils.Account,
 				Initial:    utils.META_ANY,
-				Substitute: "1001",
+				Substitute: config.NewRSRParsersMustCompile("1001", true),
 				Append:     false,
 			},
-			&engine.Attribute{
+			{
 				FieldName:  utils.Subject,
 				Initial:    "*any",
-				Substitute: "1001",
+				Substitute: config.NewRSRParsersMustCompile("1001", true),
 				Append:     true,
 			},
 		},
@@ -1163,21 +1006,6 @@ func testV1FIdxCaUpdateAttributeProfile(t *testing.T) {
 	if err := tFIdxCaRpc.Call(utils.AttributeSv1ProcessEvent, ev, &rplyEv); err != nil {
 		t.Error(err)
 	}
-	//test to make sure indexes are made as expected
-	idx := map[string]utils.StringMap{
-		"TEST_PROFILE1": {
-			"*string:Account:2009":              true,
-			"*string:Destination:+492511231234": true}}
-	fldNameVal := map[string]string{"TEST_PROFILE1": ""}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		"cgrates.org:*sessions",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(idx, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", idx, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
@@ -1185,12 +1013,12 @@ func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "TestFilter3",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"3009"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Destination,
 				Type:      "*string",
 				Values:    []string{"+492511231234"},
@@ -1206,10 +1034,11 @@ func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	var reply *engine.AttributeProfile
+	var reply engine.AttributeProfile
 	if err := tFIdxCaRpc.Call("ApierV1.GetAttributeProfile", &utils.TenantID{Tenant: "cgrates.org", ID: "ATTR_1"}, &reply); err != nil {
 		t.Error(err)
 	}
+	time.Sleep(100 * time.Millisecond)
 	reply.FilterIDs = []string{"TestFilter3"}
 	if err := tFIdxCaRpc.Call("ApierV1.SetAttributeProfile", reply, &result); err != nil {
 		t.Error(err)
@@ -1229,21 +1058,6 @@ func testV1FIdxCaUpdateAttributeProfileFromTP(t *testing.T) {
 	var rplyEv engine.AttrSProcessEventReply
 	if err := tFIdxCaRpc.Call(utils.AttributeSv1ProcessEvent, ev, &rplyEv); err != nil {
 		t.Error(err)
-	}
-	//test to make sure indexes are made as expected
-	idx := map[string]utils.StringMap{
-		"ATTR_1": {
-			"*string:Account:3009":              true,
-			"*string:Destination:+492511231234": true}}
-	fldNameVal := map[string]string{"ATTR_1": ""}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		"cgrates.org:*sessions",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(idx, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", idx, utils.ToJSON(indexes))
 	}
 }
 
@@ -1310,13 +1124,6 @@ func testV1FIdxCaRemoveAttributeProfile(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	//test to make sure indexes are made as expected
-	fldNameVal2 := map[string]string{"ATTR_1": "", "TEST_PROFILE1": ""}
-	if _, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.AttributeProfilePrefix], "cgrates.org:*rating",
-		fldNameVal2); err == nil || err != utils.ErrNotFound {
-		t.Error(err)
-	}
 }
 
 // ResourceProfile
@@ -1341,28 +1148,23 @@ func testV1FIdxCaGetResourceProfileWithNotFound(t *testing.T) {
 		argsRU, &reply); err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.StatQueueProfilePrefix], "cgrates.org",
-		nil); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
 }
 func testV1FIdxCaSetResourceProfile(t *testing.T) {
 	filter = &engine.Filter{
 		Tenant: "cgrates.org",
 		ID:     "FLTR_RES_RCFG1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1001"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Subject,
 				Type:      "*string",
 				Values:    []string{"1002"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Destination,
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -1422,20 +1224,6 @@ func testV1FIdxCaSetResourceProfile(t *testing.T) {
 	} else if result != "Approved" {
 		t.Error("Unexpected reply returned", result)
 	}
-	fldNameVal := map[string]string{"RCFG1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"RCFG1": {
-			"*string:Account:1001":     true,
-			"*string:Subject:1002":     true,
-			"*string:Destination:1001": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix], "cgrates.org",
-		fldNameVal); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, indexes)
-	}
 }
 
 func testV1FIdxCaGetResourceProfileFromTP(t *testing.T) {
@@ -1481,21 +1269,6 @@ func testV1FIdxCaGetResourceProfileFromTP(t *testing.T) {
 	} else if reply != "ResGroup1" {
 		t.Error("Unexpected reply returned", reply)
 	}
-	idx := map[string]utils.StringMap{
-		"ResGroup1": {"*default:*any:*any": true,
-			"*prefix:Destination:10": true,
-			"*prefix:Destination:20": true,
-			"*string:Account:1001":   true,
-			"*string:Account:1002":   true}}
-	fldNameVal := map[string]string{"ResGroup1": ""}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix], "cgrates.org",
-		fldNameVal); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(idx, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", idx, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
@@ -1503,17 +1276,17 @@ func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "FLTR_RES_RCFG2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"2002"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Subject,
 				Type:      "*string",
 				Values:    []string{"2001"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Destination,
 				Type:      "*string",
 				Values:    []string{"2002"},
@@ -1567,22 +1340,6 @@ func testV1FIdxCaUpdateResourceProfile(t *testing.T) {
 	} else if result != "MessageAllocation" {
 		t.Error("Unexpected reply returned", result)
 	}
-	/*
-		fldNameVal2 := map[string]string{"RCFG1": ""}
-		expectedRevIDX := map[string]utils.StringMap{
-			"RCFG1": {
-				"*string:Account:2002":     true,
-				"*string:Destination:2002": true,
-				"*string:Subject:2001":     true}}
-		if indexes, err = onStor.GetFilterReverseIndexes(
-			utils.PrefixToIndexCache[utils.ResourceProfilesPrefix], "cgrates.org",
-			fldNameVal2); err != nil {
-			t.Error(err)
-		}
-		if !reflect.DeepEqual(expectedRevIDX, indexes) {
-			t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, utils.ToJSON(indexes))
-		}
-	*/
 }
 
 func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
@@ -1590,17 +1347,17 @@ func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "FLTR_RES_RCFG3",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: utils.Account,
 				Type:      "*string",
 				Values:    []string{"1002"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Subject,
 				Type:      "*string",
 				Values:    []string{"1001"},
 			},
-			&engine.FilterRule{
+			{
 				FieldName: utils.Destination,
 				Type:      "*string",
 				Values:    []string{"1002"},
@@ -1616,16 +1373,16 @@ func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	var reply *engine.ResourceProfile
+	var reply engine.ResourceProfile
 	if err := tFIdxCaRpc.Call("ApierV1.GetResourceProfile",
 		&utils.TenantID{Tenant: "cgrates.org", ID: "ResGroup1"}, &reply); err != nil {
 		t.Error(err)
 	}
-
+	time.Sleep(100 * time.Millisecond)
 	reply.FilterIDs = []string{"FLTR_RES_RCFG3"}
 	reply.ActivationInterval = &utils.ActivationInterval{ActivationTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC)}
 
-	if err := tFIdxCaRpc.Call("ApierV1.SetResourceProfile", reply, &result); err != nil {
+	if err := tFIdxCaRpc.Call("ApierV1.SetResourceProfile", &reply, &result); err != nil {
 		t.Error(err)
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
@@ -1645,20 +1402,6 @@ func testV1FIdxCaUpdateResourceProfileFromTP(t *testing.T) {
 		t.Error(err)
 	} else if result != "ResGroup1" {
 		t.Error("Unexpected reply returned", result)
-	}
-	fldNameVal2 := map[string]string{"ResGroup1": ""}
-	expectedRevIDX := map[string]utils.StringMap{
-		"ResGroup1": {
-			"*string:Account:1002":     true,
-			"*string:Destination:1002": true,
-			"*string:Subject:1001":     true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix],
-		"cgrates.org", fldNameVal2); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, utils.ToJSON(indexes))
 	}
 }
 
@@ -1723,13 +1466,6 @@ func testV1FIdxCaRemoveResourceProfile(t *testing.T) {
 	if err := tFIdxCaRpc.Call("ApierV1.GetResourceProfile",
 		&utils.TenantID{Tenant: "cgrates.org", ID: "ResGroup1"}, &sqp); err == nil &&
 		err.Error() != utils.ErrNotFound.Error() {
-		t.Error(err)
-	}
-
-	fldNameVals2 := map[string]string{"ResGroup1": "", "TEST_PROFILE1": ""}
-	if _, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToIndexCache[utils.ThresholdProfilePrefix], "cgrates.org",
-		fldNameVals2); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }

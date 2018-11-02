@@ -143,10 +143,10 @@ func (sq *StatQueue) ProcessEvent(ev *utils.CGREvent) (err error) {
 }
 
 // remStatEvent removes an event from metrics
-func (sq *StatQueue) remEventWithID(evTenantID string) {
+func (sq *StatQueue) remEventWithID(evID string) {
 	for metricID, metric := range sq.SQMetrics {
-		if err := metric.RemEvent(evTenantID); err != nil {
-			utils.Logger.Warning(fmt.Sprintf("<StatQueue> metricID: %s, remove eventID: %s, error: %s", metricID, evTenantID, err.Error()))
+		if err := metric.RemEvent(evID); err != nil {
+			utils.Logger.Warning(fmt.Sprintf("<StatQueue> metricID: %s, remove eventID: %s, error: %s", metricID, evID, err.Error()))
 		}
 	}
 }
@@ -156,7 +156,7 @@ func (sq *StatQueue) remExpired() {
 	var expIdx *int // index of last item to be expired
 	for i, item := range sq.SQItems {
 		if item.ExpiryTime == nil {
-			break
+			break // items are ordered, so no need to look further
 		}
 		if item.ExpiryTime.After(time.Now()) {
 			break
@@ -184,10 +184,20 @@ func (sq *StatQueue) remOnQueueLength() {
 
 // addStatEvent computes metrics for an event
 func (sq *StatQueue) addStatEvent(ev *utils.CGREvent) {
+	var expTime *time.Time
+	if sq.ttl != nil {
+		expTime = utils.TimePointer(time.Now().Add(*sq.ttl))
+	}
+	sq.SQItems = append(sq.SQItems,
+		struct {
+			EventID    string
+			ExpiryTime *time.Time
+		}{ev.ID, expTime})
+
 	for metricID, metric := range sq.SQMetrics {
 		if err := metric.AddEvent(ev); err != nil {
 			utils.Logger.Warning(fmt.Sprintf("<StatQueue> metricID: %s, add eventID: %s, error: %s",
-				metricID, ev.TenantID(), err.Error()))
+				metricID, ev.ID, err.Error()))
 		}
 	}
 }

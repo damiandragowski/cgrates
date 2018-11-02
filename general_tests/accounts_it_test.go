@@ -110,7 +110,7 @@ func testV1AccStartEngine(t *testing.T) {
 
 func testV1AccRpcConn(t *testing.T) {
 	var err error
-	accRpc, err = jsonrpc.Dial("tcp", accCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	accRpc, err = jsonrpc.Dial("tcp", accCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -125,7 +125,7 @@ func testV1AccGetAccountBeforeSet(t *testing.T) {
 
 func testV1AccLoadTarrifPlans(t *testing.T) {
 	var reply string
-	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}
+	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "oldtutorial")}
 	if err := accRpc.Call("ApierV1.LoadTariffPlanFromFolder", attrs, &reply); err != nil {
 		t.Error(err)
 	} else if reply != utils.OK {

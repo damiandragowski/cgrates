@@ -19,14 +19,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package console
 
 import (
+	"time"
+
+	"github.com/cgrates/cgrates/dispatchers"
 	"github.com/cgrates/cgrates/utils"
 )
 
 func init() {
 	c := &CmdStatsQueueForEvent{
 		name:      "stats_for_event",
-		rpcMethod: "StatSv1.GetStatQueuesForEvent",
-		rpcParams: &utils.CGREvent{},
+		rpcMethod: utils.StatSv1GetStatQueuesForEvent,
+		rpcParams: &dispatchers.ArgsStatProcessEventWithApiKey{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -36,7 +39,7 @@ func init() {
 type CmdStatsQueueForEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *utils.CGREvent
+	rpcParams *dispatchers.ArgsStatProcessEventWithApiKey
 	*CommandExecuter
 }
 
@@ -50,12 +53,15 @@ func (self *CmdStatsQueueForEvent) RpcMethod() string {
 
 func (self *CmdStatsQueueForEvent) RpcParams(reset bool) interface{} {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &utils.CGREvent{}
+		self.rpcParams = &dispatchers.ArgsStatProcessEventWithApiKey{}
 	}
 	return self.rpcParams
 }
 
 func (self *CmdStatsQueueForEvent) PostprocessRpcParams() error {
+	if self.rpcParams.Time == nil {
+		self.rpcParams.Time = utils.TimePointer(time.Now())
+	}
 	return nil
 }
 

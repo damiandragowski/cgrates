@@ -41,21 +41,28 @@ var tpCsvScenario = flag.String("tp_scenario", "testtp", "Use this scenario fold
 // Will use 3 different datadbs in order to be able to see differences in data loaded
 func TestLoaderITConnDataDbs(t *testing.T) {
 	lCfg, _ = config.NewDefaultCGRConfig()
-	lCfg.StorDBPass = "CGRateS.org"
+	lCfg.StorDbCfg().StorDBPass = "CGRateS.org"
 	var err error
-	if dataDbCsv, err = ConfigureDataStorage(lCfg.DataDbType, lCfg.DataDbHost, lCfg.DataDbPort, "7",
-		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, 1); err != nil {
+	if dataDbCsv, err = ConfigureDataStorage(lCfg.DataDbCfg().DataDbType,
+		lCfg.DataDbCfg().DataDbHost, lCfg.DataDbCfg().DataDbPort, "7",
+		lCfg.DataDbCfg().DataDbUser, lCfg.DataDbCfg().DataDbPass,
+		lCfg.GeneralCfg().DBDataEncoding, nil, ""); err != nil {
 		t.Fatal("Error on dataDb connection: ", err.Error())
 	}
-	if dataDbStor, err = ConfigureDataStorage(lCfg.DataDbType, lCfg.DataDbHost, lCfg.DataDbPort, "8",
-		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, 1); err != nil {
+	if dataDbStor, err = ConfigureDataStorage(lCfg.DataDbCfg().DataDbType,
+		lCfg.DataDbCfg().DataDbHost, lCfg.DataDbCfg().DataDbPort, "8",
+		lCfg.DataDbCfg().DataDbUser, lCfg.DataDbCfg().DataDbPass,
+		lCfg.GeneralCfg().DBDataEncoding, nil, ""); err != nil {
 		t.Fatal("Error on dataDb connection: ", err.Error())
 	}
-	if dataDbApier, err = ConfigureDataStorage(lCfg.DataDbType, lCfg.DataDbHost, lCfg.DataDbPort, "9",
-		lCfg.DataDbUser, lCfg.DataDbPass, lCfg.DBDataEncoding, nil, 1); err != nil {
+	if dataDbApier, err = ConfigureDataStorage(lCfg.DataDbCfg().DataDbType,
+		lCfg.DataDbCfg().DataDbHost, lCfg.DataDbCfg().DataDbPort, "9",
+		lCfg.DataDbCfg().DataDbUser, lCfg.DataDbCfg().DataDbPass,
+		lCfg.GeneralCfg().DBDataEncoding, nil, ""); err != nil {
 		t.Fatal("Error on dataDb connection: ", err.Error())
 	}
-	for _, db := range []Storage{dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB(), dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB()} {
+	for _, db := range []Storage{dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB(),
+		dataDbCsv.DataDB(), dataDbStor.DataDB(), dataDbApier.DataDB()} {
 		if err = db.Flush(""); err != nil {
 			t.Fatal("Error when flushing datadb")
 		}
@@ -64,14 +71,15 @@ func TestLoaderITConnDataDbs(t *testing.T) {
 
 // Create/reset storage tariff plan tables, used as database connectin establishment also
 func TestLoaderITCreateStorTpTables(t *testing.T) {
-	db, err := NewMySQLStorage(lCfg.StorDBHost, lCfg.StorDBPort, lCfg.StorDBName,
-		lCfg.StorDBUser, lCfg.StorDBPass, lCfg.StorDBMaxOpenConns, lCfg.StorDBMaxIdleConns, lCfg.StorDBConnMaxLifetime)
+	db, err := NewMySQLStorage(lCfg.StorDbCfg().StorDBHost,
+		lCfg.StorDbCfg().StorDBPort, lCfg.StorDbCfg().StorDBName,
+		lCfg.StorDbCfg().StorDBUser, lCfg.StorDbCfg().StorDBPass,
+		lCfg.StorDbCfg().StorDBMaxOpenConns, lCfg.StorDbCfg().StorDBMaxIdleConns,
+		lCfg.StorDbCfg().StorDBConnMaxLifetime)
 	if err != nil {
 		t.Error("Error on opening database connection: ", err)
-		return
-	} else {
-		storDb = db
 	}
+	storDb = db
 	// Creating the table serves also as reset since there is a drop prior to create
 	if err := db.CreateTablesFromScript(path.Join(*dataDir, "storage", "mysql", utils.CREATE_TARIFFPLAN_TABLES_SQL)); err != nil {
 		t.Error("Error on db creation: ", err.Error())
@@ -110,6 +118,7 @@ func TestLoaderITRemoveLoad(t *testing.T) {
 		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.FiltersCsv),
 		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.SuppliersCsv),
 		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.AttributesCsv),
+		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.ChargersCsv),
 	), "", "")
 
 	if err = loader.LoadDestinations(); err != nil {
@@ -172,6 +181,9 @@ func TestLoaderITRemoveLoad(t *testing.T) {
 	if err = loader.LoadAttributeProfiles(); err != nil {
 		t.Error("Failed loading Alias profiles: ", err.Error())
 	}
+	if err = loader.LoadChargerProfiles(); err != nil {
+		t.Error("Failed loading Charger profiles: ", err.Error())
+	}
 	if err := loader.WriteToDatabase(true, false, false); err != nil {
 		t.Error("Could not write data into dataDb: ", err.Error())
 	}
@@ -211,6 +223,7 @@ func TestLoaderITLoadFromCSV(t *testing.T) {
 		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.FiltersCsv),
 		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.SuppliersCsv),
 		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.AttributesCsv),
+		path.Join(*dataDir, "tariffplans", *tpCsvScenario, utils.ChargersCsv),
 	), "", "")
 
 	if err = loader.LoadDestinations(); err != nil {
@@ -271,6 +284,9 @@ func TestLoaderITLoadFromCSV(t *testing.T) {
 		t.Error("Failed loading Supplier profiles: ", err.Error())
 	}
 	if err = loader.LoadAttributeProfiles(); err != nil {
+		t.Error("Failed loading Alias profiles: ", err.Error())
+	}
+	if err = loader.LoadChargerProfiles(); err != nil {
 		t.Error("Failed loading Alias profiles: ", err.Error())
 	}
 	if err := loader.WriteToDatabase(true, false, false); err != nil {
@@ -423,7 +439,7 @@ func TestLoaderITWriteToDatabase(t *testing.T) {
 	}
 
 	for tenantid, rl := range loader.resProfiles {
-		rcv, err := loader.dm.GetResourceProfile(tenantid.Tenant, tenantid.ID, true, utils.NonTransactional)
+		rcv, err := loader.dm.GetResourceProfile(tenantid.Tenant, tenantid.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Error("Failed GetResourceProfile: ", err.Error())
 		}
@@ -436,7 +452,7 @@ func TestLoaderITWriteToDatabase(t *testing.T) {
 		}
 	}
 	for tenantid, st := range loader.sqProfiles {
-		rcv, err := loader.dm.GetStatQueueProfile(tenantid.Tenant, tenantid.ID, true, utils.NonTransactional)
+		rcv, err := loader.dm.GetStatQueueProfile(tenantid.Tenant, tenantid.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Errorf("Failed GetStatsQueue, tenant: %s, id: %s,  error: %s ", tenantid.Tenant, tenantid.ID, err.Error())
 		}
@@ -450,7 +466,7 @@ func TestLoaderITWriteToDatabase(t *testing.T) {
 	}
 
 	for tenatid, th := range loader.thProfiles {
-		rcv, err := loader.dm.GetThresholdProfile(tenatid.Tenant, tenatid.ID, true, utils.NonTransactional)
+		rcv, err := loader.dm.GetThresholdProfile(tenatid.Tenant, tenatid.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Errorf("Failed GetThresholdProfile, tenant: %s, id: %s,  error: %s ", th.Tenant, th.ID, err.Error())
 		}
@@ -464,7 +480,7 @@ func TestLoaderITWriteToDatabase(t *testing.T) {
 	}
 
 	for tenatid, th := range loader.sppProfiles {
-		rcv, err := loader.dm.GetSupplierProfile(tenatid.Tenant, tenatid.ID, true, utils.NonTransactional)
+		rcv, err := loader.dm.GetSupplierProfile(tenatid.Tenant, tenatid.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Errorf("Failed GetSupplierProfile, tenant: %s, id: %s,  error: %s ", th.Tenant, th.ID, err.Error())
 		}
@@ -478,7 +494,7 @@ func TestLoaderITWriteToDatabase(t *testing.T) {
 	}
 
 	for tenatid, attrPrf := range loader.attributeProfiles {
-		rcv, err := loader.dm.GetAttributeProfile(tenatid.Tenant, tenatid.ID, true, utils.NonTransactional)
+		rcv, err := loader.dm.GetAttributeProfile(tenatid.Tenant, tenatid.ID, false, false, utils.NonTransactional)
 		if err != nil {
 			t.Errorf("Failed GetAttributeProfile, tenant: %s, id: %s,  error: %s ", attrPrf.Tenant, attrPrf.ID, err.Error())
 		}
@@ -486,8 +502,24 @@ func TestLoaderITWriteToDatabase(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		sts.Compile()
+		rcv.Compile()
 		if !reflect.DeepEqual(sts, rcv) {
 			t.Errorf("Expecting: %v, received: %v", sts, rcv)
+		}
+	}
+
+	for tenatid, cpp := range loader.chargerProfiles {
+		rcv, err := loader.dm.GetChargerProfile(tenatid.Tenant, tenatid.ID, false, false, utils.NonTransactional)
+		if err != nil {
+			t.Errorf("Failed GetChargerProfile, tenant: %s, id: %s,  error: %s ", cpp.Tenant, cpp.ID, err.Error())
+		}
+		cp, err := APItoChargerProfile(cpp, "UTC")
+		if err != nil {
+			t.Error(err)
+		}
+		if !reflect.DeepEqual(cp, rcv) {
+			t.Errorf("Expecting: %v, received: %v", cp, rcv)
 		}
 	}
 
@@ -514,7 +546,6 @@ func TestLoaderITImportToStorDb(t *testing.T) {
 
 // Loads data from storDb into dataDb
 func TestLoaderITLoadFromStorDb(t *testing.T) {
-
 	loader := NewTpReader(dataDbStor.DataDB(), storDb, utils.TEST_SQL, "")
 	if err := loader.LoadDestinations(); err != nil && err.Error() != utils.NotFoundCaps {
 		t.Error("Failed loading destinations: ", err.Error())

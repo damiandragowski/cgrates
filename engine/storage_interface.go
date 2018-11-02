@@ -123,11 +123,6 @@ type DataDB interface {
 	SetFilterIndexesDrv(cacheID, itemIDPrefix string,
 		indexes map[string]utils.StringMap, commit bool, transactionID string) (err error)
 	RemoveFilterIndexesDrv(cacheID, itemIDPrefix string) (err error)
-	GetFilterReverseIndexesDrv(cacheID, itemIDPrefix string,
-		fldNameVal map[string]string) (indexes map[string]utils.StringMap, err error)
-	SetFilterReverseIndexesDrv(cacheID, itemIDPrefix string, indexes map[string]utils.StringMap,
-		commit bool, transactionID string) (err error)
-	RemoveFilterReverseIndexesDrv(cacheID, itemIDPrefix string) (err error)
 	MatchFilterIndexDrv(cacheID, itemIDPrefix,
 		filterType, fieldName, fieldVal string) (itemIDs utils.StringMap, err error)
 	GetStatQueueProfileDrv(tenant string, ID string) (sq *StatQueueProfile, err error)
@@ -151,6 +146,9 @@ type DataDB interface {
 	GetAttributeProfileDrv(string, string) (*AttributeProfile, error)
 	SetAttributeProfileDrv(*AttributeProfile) error
 	RemoveAttributeProfileDrv(string, string) error
+	GetChargerProfileDrv(string, string) (*ChargerProfile, error)
+	SetChargerProfileDrv(*ChargerProfile) error
+	RemoveChargerProfileDrv(string, string) error
 }
 
 type StorDB interface {
@@ -201,6 +199,7 @@ type LoadReader interface {
 	GetTPFilters(string, string) ([]*utils.TPFilterProfile, error)
 	GetTPSuppliers(string, string) ([]*utils.TPSupplierProfile, error)
 	GetTPAttributes(string, string) ([]*utils.TPAttributeProfile, error)
+	GetTPChargers(string, string) ([]*utils.TPChargerProfile, error)
 }
 
 type LoadWriter interface {
@@ -227,6 +226,7 @@ type LoadWriter interface {
 	SetTPFilters([]*utils.TPFilterProfile) error
 	SetTPSuppliers([]*utils.TPSupplierProfile) error
 	SetTPAttributes([]*utils.TPAttributeProfile) error
+	SetTPChargers([]*utils.TPChargerProfile) error
 }
 
 // NewMarshaler returns the marshaler type selected by mrshlerStr

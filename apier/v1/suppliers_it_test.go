@@ -50,10 +50,23 @@ var sTestsSupplierSV1 = []func(t *testing.T){
 	testV1SplSFromFolder,
 	testV1SplSGetWeightSuppliers,
 	testV1SplSGetLeastCostSuppliers,
+	testV1SplSGetLeastCostSuppliersWithMaxCost,
+	testV1SplSGetLeastCostSuppliersWithMaxCost2,
+	testV1SplSGetLeastCostSuppliersWithMaxCostNotFound,
+	testV1SplSGetHighestCostSuppliers,
+	testV1SplSGetLeastCostSuppliersErr,
+	testV1SplSPolulateStatsForQOS,
+	testV1SplSGetQOSSuppliers,
+	testV1SplSGetQOSSuppliers2,
+	testV1SplSGetQOSSuppliers3,
+	testV1SplSGetQOSSuppliersFiltred,
+	testV1SplSGetQOSSuppliersFiltred2,
 	testV1SplSGetSupplierWithoutFilter,
 	testV1SplSSetSupplierProfiles,
+	testV1SplSGetSupplierProfileIDs,
 	testV1SplSUpdateSupplierProfiles,
 	testV1SplSRemSupplierProfiles,
+	testV1SplSupplierPing,
 	testV1SplSStopEngine,
 }
 
@@ -108,7 +121,7 @@ func testV1SplSStartEngine(t *testing.T) {
 
 func testV1SplSRpcConn(t *testing.T) {
 	var err error
-	splSv1Rpc, err = jsonrpc.Dial("tcp", splSv1Cfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	splSv1Rpc, err = jsonrpc.Dial("tcp", splSv1Cfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -116,7 +129,7 @@ func testV1SplSRpcConn(t *testing.T) {
 
 func testV1SplSFromFolder(t *testing.T) {
 	var reply string
-	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "tutorial")}
+	attrs := &utils.AttrLoadTpFromFolder{FolderPath: path.Join(*dataDir, "tariffplans", "testit")}
 	if err := splSv1Rpc.Call("ApierV1.LoadTariffPlanFromFolder", attrs, &reply); err != nil {
 		t.Error(err)
 	}
@@ -138,13 +151,13 @@ func testV1SplSGetWeightSuppliers(t *testing.T) {
 		ProfileID: "SPL_WEIGHT_1",
 		Sorting:   utils.MetaWeight,
 		SortedSuppliers: []*engine.SortedSupplier{
-			&engine.SortedSupplier{
+			{
 				SupplierID: "supplier2",
 				SortingData: map[string]interface{}{
 					utils.Weight: 20.0,
 				},
 			},
-			&engine.SortedSupplier{
+			{
 				SupplierID: "supplier1",
 				SortingData: map[string]interface{}{
 					utils.Weight: 10.0,
@@ -168,7 +181,62 @@ func testV1SplSGetLeastCostSuppliers(t *testing.T) {
 			Tenant: "cgrates.org",
 			ID:     "testV1SplSGetLeastCostSuppliers",
 			Event: map[string]interface{}{
-				utils.Account:     "1001",
+				utils.Account:     "1003",
+				utils.Subject:     "1003",
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
+				utils.Usage:       "1m20s",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_LEASTCOST_1",
+		Sorting:   utils.MetaLeastCost,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.0136,
+					utils.RatingPlanID: "RP_SPECIAL_1002",
+					utils.Weight:       15.0,
+				},
+			},
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.0136,
+					utils.RatingPlanID: "RP_SPECIAL_1002",
+					utils.Weight:       10.0,
+				},
+			},
+			{
+				SupplierID: "supplier2",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.46666,
+					utils.RatingPlanID: "RP_RETAIL1",
+					utils.Weight:       20.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetLeastCostSuppliersWithMaxCost(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		MaxCost: "0.30",
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetLeastCostSuppliers",
+			Event: map[string]interface{}{
+				utils.Account:     "1003",
 				utils.Subject:     "1001",
 				utils.Destination: "1002",
 				utils.SetupTime:   time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
@@ -180,25 +248,553 @@ func testV1SplSGetLeastCostSuppliers(t *testing.T) {
 		ProfileID: "SPL_LEASTCOST_1",
 		Sorting:   utils.MetaLeastCost,
 		SortedSuppliers: []*engine.SortedSupplier{
-			&engine.SortedSupplier{
+			{
 				SupplierID: "supplier3",
 				SortingData: map[string]interface{}{
-					utils.Cost:         0.02,
+					utils.Cost:         0.0136,
 					utils.RatingPlanID: "RP_SPECIAL_1002",
 					utils.Weight:       15.0,
 				},
 			},
-			&engine.SortedSupplier{
+			{
 				SupplierID: "supplier1",
 				SortingData: map[string]interface{}{
-					utils.Cost:         0.02,
+					utils.Cost:         0.0136,
 					utils.RatingPlanID: "RP_SPECIAL_1002",
 					utils.Weight:       10.0,
 				},
 			},
-			&engine.SortedSupplier{
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetLeastCostSuppliersWithMaxCostNotFound(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		MaxCost: "0.001",
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetLeastCostSuppliers",
+			Event: map[string]interface{}{
+				utils.Account:     "1003",
+				utils.Subject:     "1001",
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
+				utils.Usage:       "1m20s",
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil && err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+}
+
+func testV1SplSGetLeastCostSuppliersWithMaxCost2(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		MaxCost: utils.MetaEventCost,
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetLeastCostSuppliers",
+			Event: map[string]interface{}{
+				utils.Account:     "1003",
+				utils.Subject:     "SPECIAL_1002",
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2014, 01, 14, 0, 0, 0, 0, time.UTC),
+				utils.Usage:       "10m20s",
+				utils.Category:    "call",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_LEASTCOST_1",
+		Sorting:   utils.MetaLeastCost,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.1054,
+					utils.RatingPlanID: "RP_SPECIAL_1002",
+					utils.Weight:       15.0,
+				},
+			},
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.1054,
+					utils.RatingPlanID: "RP_SPECIAL_1002",
+					utils.Weight:       10.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetHighestCostSuppliers(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetHighestCostSuppliers",
+			Event: map[string]interface{}{
+				utils.Account:     "1003",
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
+				utils.Usage:       "1m20s",
+				"DistincMatch":    "*highest_cost",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_HIGHESTCOST_1",
+		Sorting:   utils.MetaHighestCost,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
 				SupplierID: "supplier2",
 				SortingData: map[string]interface{}{
+					utils.Cost:         0.46666,
+					utils.RatingPlanID: "RP_RETAIL1",
+					utils.Weight:       20.0,
+				},
+			},
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.0136,
+					utils.RatingPlanID: "RP_SPECIAL_1002",
+					utils.Weight:       15.0,
+				},
+			},
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					utils.Cost:         0.0136,
+					utils.RatingPlanID: "RP_SPECIAL_1002",
+					utils.Weight:       10.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetLeastCostSuppliersErr(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		IgnoreErrors: true,
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetHighestCostSuppliers",
+			Event: map[string]interface{}{
+				utils.Account:     "1000",
+				utils.Destination: "1001",
+				utils.SetupTime:   "*now",
+				"Subject":         "TEST",
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err.Error() != utils.ErrNotFound.Error() {
+		t.Error(err)
+	}
+}
+
+func testV1SplSPolulateStatsForQOS(t *testing.T) {
+	var reply []string
+	expected := []string{"Stat_1"}
+	ev1 := utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event1",
+		Event: map[string]interface{}{
+			utils.Account:    "1001",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(11 * time.Second),
+			utils.COST:       10.0,
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+	expected = []string{"Stat_1"}
+	ev1 = utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event2",
+		Event: map[string]interface{}{
+			utils.Account:    "1001",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(11 * time.Second),
+			utils.COST:       10.5,
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+	expected = []string{"Stat_2"}
+	ev1 = utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event2",
+		Event: map[string]interface{}{
+			utils.Account:    "1002",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(5 * time.Second),
+			utils.COST:       12.5,
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+	expected = []string{"Stat_2"}
+	ev1 = utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event2",
+		Event: map[string]interface{}{
+			utils.Account:    "1002",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(6 * time.Second),
+			utils.COST:       17.5,
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+	expected = []string{"Stat_3"}
+	ev1 = utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event3",
+		Event: map[string]interface{}{
+			utils.Account:    "1003",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(11 * time.Second),
+			utils.COST:       12.5,
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+	expected = []string{"Stat_1_1"}
+	ev1 = utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event3",
+		Event: map[string]interface{}{
+			"Stat":           "Stat1_1",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(11 * time.Second),
+			utils.COST:       12.5,
+			utils.PDD:        time.Duration(12 * time.Second),
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+	expected = []string{"Stat_1_1"}
+	ev1 = utils.CGREvent{
+		Tenant: "cgrates.org",
+		ID:     "event3",
+		Event: map[string]interface{}{
+			"Stat":           "Stat1_1",
+			utils.AnswerTime: time.Date(2014, 7, 14, 14, 25, 0, 0, time.UTC),
+			utils.Usage:      time.Duration(15 * time.Second),
+			utils.COST:       15.5,
+			utils.PDD:        time.Duration(15 * time.Second),
+		},
+	}
+	if err := splSv1Rpc.Call(utils.StatSv1ProcessEvent, &ev1, &reply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(reply, expected) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, reply)
+	}
+
+}
+
+func testV1SplSGetQOSSuppliers(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetQOSSuppliers",
+			Event: map[string]interface{}{
+				"DistincMatch": "*qos",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_QOS_1",
+		Sorting:   utils.MetaQOS,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_1":   11.0,
+					"*acd:Stat_1_1": 13.0,
+					"*asr:Stat_1":   100.0,
+					"*pdd:Stat_1_1": 13.5,
+					"*tcd:Stat_1":   22.0,
+					"*tcd:Stat_1_1": 26.0,
+					utils.Weight:    10.0,
+				},
+			},
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_3": 11.0,
+					"*asr:Stat_3": 100.0,
+					"*tcd:Stat_3": 11.0,
+					utils.Weight:  35.0,
+				},
+			},
+
+			{
+				SupplierID: "supplier2",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_2": 5.5,
+					"*asr:Stat_2": 100.0,
+					"*tcd:Stat_2": 11.0,
+					utils.Weight:  20.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetQOSSuppliers2(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetQOSSuppliers",
+			Event: map[string]interface{}{
+				"DistincMatch": "*qos2",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_QOS_2",
+		Sorting:   utils.MetaQOS,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_3": 11.0,
+					"*asr:Stat_3": 100.0,
+					"*tcd:Stat_3": 11.0,
+					utils.Weight:  35.0,
+				},
+			},
+			{
+				SupplierID: "supplier2",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_2": 5.5,
+					"*asr:Stat_2": 100.0,
+					"*tcd:Stat_2": 11.0,
+					utils.Weight:  20.0,
+				},
+			},
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_1":   11.0,
+					"*acd:Stat_1_1": 13.0,
+					"*asr:Stat_1":   100.0,
+					"*pdd:Stat_1_1": 13.5,
+					"*tcd:Stat_1":   22.0,
+					"*tcd:Stat_1_1": 26.0,
+					utils.Weight:    10.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetQOSSuppliers3(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetQOSSuppliers",
+			Event: map[string]interface{}{
+				"DistincMatch": "*qos3",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_QOS_3",
+		Sorting:   utils.MetaQOS,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_1":   11.0,
+					"*acd:Stat_1_1": 13.0,
+					"*asr:Stat_1":   100.0,
+					"*pdd:Stat_1_1": 13.5,
+					"*tcd:Stat_1":   22.0,
+					"*tcd:Stat_1_1": 26.0,
+					utils.Weight:    10.0,
+				},
+			},
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_3": 11.0,
+					"*asr:Stat_3": 100.0,
+					"*tcd:Stat_3": 11.0,
+					utils.Weight:  35.0,
+				},
+			},
+			{
+				SupplierID: "supplier2",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_2": 5.5,
+					"*asr:Stat_2": 100.0,
+					"*tcd:Stat_2": 11.0,
+					utils.Weight:  20.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetQOSSuppliersFiltred(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetQOSSuppliers",
+			Event: map[string]interface{}{
+				"DistincMatch": "*qos_filtred",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_QOS_FILTRED",
+		Sorting:   utils.MetaQOS,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier1",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_1":   11.0,
+					"*acd:Stat_1_1": 13.0,
+					"*asr:Stat_1":   100.0,
+					"*pdd:Stat_1_1": 13.5,
+					"*tcd:Stat_1":   22.0,
+					"*tcd:Stat_1_1": 26.0,
+					utils.Weight:    10.0,
+				},
+			},
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_3": 11.0,
+					"*asr:Stat_3": 100.0,
+					"*tcd:Stat_3": 11.0,
+					utils.Weight:  35.0,
+				},
+			},
+		},
+	}
+	var suplsReply engine.SortedSuppliers
+	if err := splSv1Rpc.Call(utils.SupplierSv1GetSuppliers,
+		ev, &suplsReply); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eSpls, suplsReply) {
+		t.Errorf("Expecting: %s, received: %s",
+			utils.ToJSON(eSpls), utils.ToJSON(suplsReply))
+	}
+}
+
+func testV1SplSGetQOSSuppliersFiltred2(t *testing.T) {
+	ev := &engine.ArgsGetSuppliers{
+		CGREvent: utils.CGREvent{
+			Tenant: "cgrates.org",
+			ID:     "testV1SplSGetQOSSuppliers",
+			Event: map[string]interface{}{
+				"DistincMatch":    "*qos_filtred2",
+				utils.Account:     "1003",
+				utils.Destination: "1002",
+				utils.SetupTime:   time.Date(2017, 12, 1, 14, 25, 0, 0, time.UTC),
+				utils.Usage:       "1m20s",
+			},
+		},
+	}
+	eSpls := engine.SortedSuppliers{
+		ProfileID: "SPL_QOS_FILTRED2",
+		Sorting:   utils.MetaQOS,
+		SortedSuppliers: []*engine.SortedSupplier{
+			{
+				SupplierID: "supplier3",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_3": 11.0,
+					"*asr:Stat_3": 100.0,
+					"*tcd:Stat_3": 11.0,
+					utils.Weight:  35.0,
+				},
+			},
+			{
+				SupplierID: "supplier2",
+				SortingData: map[string]interface{}{
+					"*acd:Stat_2":      5.5,
+					"*asr:Stat_2":      100.0,
+					"*tcd:Stat_2":      11.0,
 					utils.Cost:         0.46666,
 					utils.RatingPlanID: "RP_RETAIL1",
 					utils.Weight:       20.0,
@@ -231,7 +827,7 @@ func testV1SplSGetSupplierWithoutFilter(t *testing.T) {
 		ProfileID: "SPL_WEIGHT_2",
 		Sorting:   utils.MetaWeight,
 		SortedSuppliers: []*engine.SortedSupplier{
-			&engine.SortedSupplier{
+			{
 				SupplierID: "supplier1",
 				SortingData: map[string]interface{}{
 					utils.Weight: 10.0,
@@ -263,7 +859,7 @@ func testV1SplSSetSupplierProfiles(t *testing.T) {
 		Sorting:           "Sort1",
 		SortingParameters: []string{"Param1", "Param2"},
 		Suppliers: []*engine.Supplier{
-			&engine.Supplier{
+			{
 				ID:                 "SPL1",
 				RatingPlanIDs:      []string{"RP1"},
 				FilterIDs:          []string{"FLTR_1"},
@@ -291,9 +887,20 @@ func testV1SplSSetSupplierProfiles(t *testing.T) {
 	}
 }
 
+func testV1SplSGetSupplierProfileIDs(t *testing.T) {
+	expected := []string{"SPL_HIGHESTCOST_1", "SPL_QOS_1", "SPL_QOS_2", "SPL_QOS_FILTRED", "SPL_QOS_FILTRED2",
+		"SPL_ACNT_1001", "SPL_LEASTCOST_1", "SPL_WEIGHT_2", "SPL_WEIGHT_1", "SPL_QOS_3", "TEST_PROFILE1", "SPL_LCR"}
+	var result []string
+	if err := splSv1Rpc.Call("ApierV1.GetSupplierProfileIDs", "cgrates.org", &result); err != nil {
+		t.Error(err)
+	} else if len(expected) != len(result) {
+		t.Errorf("Expecting : %+v, received: %+v", expected, result)
+	}
+}
+
 func testV1SplSUpdateSupplierProfiles(t *testing.T) {
 	splPrf.Suppliers = []*engine.Supplier{
-		&engine.Supplier{
+		{
 			ID:                 "SPL1",
 			RatingPlanIDs:      []string{"RP1"},
 			FilterIDs:          []string{"FLTR_1"},
@@ -304,7 +911,7 @@ func testV1SplSUpdateSupplierProfiles(t *testing.T) {
 			Blocker:            false,
 			SupplierParameters: "SortingParameter1",
 		},
-		&engine.Supplier{
+		{
 			ID:                 "SPL2",
 			RatingPlanIDs:      []string{"RP2"},
 			FilterIDs:          []string{"FLTR_2"},
@@ -317,7 +924,7 @@ func testV1SplSUpdateSupplierProfiles(t *testing.T) {
 		},
 	}
 	reverseSuppliers := []*engine.Supplier{
-		&engine.Supplier{
+		{
 			ID:                 "SPL2",
 			RatingPlanIDs:      []string{"RP2"},
 			FilterIDs:          []string{"FLTR_2"},
@@ -328,7 +935,7 @@ func testV1SplSUpdateSupplierProfiles(t *testing.T) {
 			Blocker:            true,
 			SupplierParameters: "SortingParameter2",
 		},
-		&engine.Supplier{
+		{
 			ID:                 "SPL1",
 			RatingPlanIDs:      []string{"RP1"},
 			FilterIDs:          []string{"FLTR_1"},
@@ -363,8 +970,19 @@ func testV1SplSRemSupplierProfiles(t *testing.T) {
 		t.Error("Unexpected reply returned", resp)
 	}
 	var reply *engine.SupplierProfile
-	if err := splSv1Rpc.Call("ApierV1.GetAttributeProfile", &utils.TenantID{Tenant: "cgrates.org", ID: "TEST_PROFILE1"}, &reply); err == nil || err.Error() != utils.ErrNotFound.Error() {
+	if err := splSv1Rpc.Call("ApierV1.GetSupplierProfile",
+		&utils.TenantID{Tenant: "cgrates.org", ID: "TEST_PROFILE1"}, &reply); err == nil ||
+		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
+	}
+}
+
+func testV1SplSupplierPing(t *testing.T) {
+	var resp string
+	if err := splSv1Rpc.Call(utils.SupplierSv1Ping, "", &resp); err != nil {
+		t.Error(err)
+	} else if resp != utils.Pong {
+		t.Error("Unexpected reply returned", resp)
 	}
 }
 

@@ -32,6 +32,7 @@ func NewBareEventCost() *EventCost {
 		RatingFilters: make(RatingFilters),
 		Rates:         make(ChargedRates),
 		Timings:       make(ChargedTimings),
+		Charges:       make([]*ChargingInterval, 0),
 	}
 }
 
@@ -169,6 +170,9 @@ func (ec *EventCost) rateIntervalForRatingID(ratingID string) (ri *RateInterval)
 }
 
 func (ec *EventCost) Clone() (cln *EventCost) {
+	if ec == nil {
+		return
+	}
 	cln = new(EventCost)
 	cln.CGRID = ec.CGRID
 	cln.RunID = ec.RunID
@@ -340,18 +344,51 @@ func (ec *EventCost) accountingGetIDFromEventCost(oEC *EventCost, oAccountingID 
 	return ec.Accounting.GetIDWithSet(oBC)
 }
 
-// appendCIl appends a ChargingInterval to existing chargers, no compression done
+// appendCIl appends a ChargingInterval to existing chargers
+// no compression done at ChargingInterval level, attempted on ChargingIncrement level
 func (ec *EventCost) appendCIlFromEC(oEC *EventCost, cIlIdx int) {
 	cIl := oEC.Charges[cIlIdx]
-	cIl.RatingID = ec.ratingGetIDFomEventCost(oEC, cIl.RatingID)
-	for _, cIt := range cIl.Increments {
-		cIt.AccountingID = ec.accountingGetIDFromEventCost(oEC, cIt.AccountingID)
+	cIlCln := cIl.Clone() // add/modify data on clone instead of original
+	cIlCln.RatingID = ec.ratingGetIDFomEventCost(oEC, cIl.RatingID)
+	lastCIl := ec.Charges[len(ec.Charges)-1]
+	lastCIt := lastCIl.Increments[len(lastCIl.Increments)-1]
+	appendChargingIncrement := lastCIl.CompressFactor == 1 &&
+		lastCIl.RatingID == cIlCln.RatingID // attempt compressing of the ChargingIncrements
+	var idxFirstCIt *int // keep here the reference towards last not appended charging increment so we can create separate ChargingInterval
+	var idxLastCF *int   // reference towards last compress not absorbed by ec.Charges
+	for cF := cIl.CompressFactor; cF > 0; cF-- {
+		for i, cIt := range cIl.Increments {
+			cIlCln.Increments[i].AccountingID = ec.accountingGetIDFromEventCost(oEC, cIt.AccountingID)
+			if idxFirstCIt != nil {
+				continue
+			}
+			if !appendChargingIncrement ||
+				!lastCIt.PartiallyEquals(cIlCln.Increments[i]) {
+				idxFirstCIt = utils.IntPointer(i)
+				idxLastCF = utils.IntPointer(cF)
+				continue
+			}
+			lastCIt.CompressFactor += cIt.CompressFactor // compress the iterated ChargingIncrement
+		}
 	}
-	ec.Charges = append(ec.Charges, cIl)
+	if lastCIl.PartiallyEquals(cIlCln) { // the two CIls are equal, compress the original one
+		lastCIl.CompressFactor += cIlCln.CompressFactor
+		return
+	}
+	if idxFirstCIt != nil { // CIt was not completely absorbed
+		cIl.RatingID = cIlCln.RatingID // reuse cIl so we don't clone again
+		cIl.CompressFactor = 1
+		cIl.Increments = cIlCln.Increments[*idxFirstCIt:]
+		ec.Charges = append(ec.Charges, cIl)
+		if *idxLastCF > 1 { // add the remaining part out of original ChargingInterval
+			cIlCln.CompressFactor = *idxLastCF - 1
+			ec.Charges = append(ec.Charges, cIlCln)
+		}
+	}
 }
 
 // AppendChargingInterval appends or compresses a &ChargingInterval to existing ec.Chargers
-func (ec *EventCost) AppendChargingIntervalFromEventCost(oEC *EventCost, cIlIdx int) {
+func (ec *EventCost) appendChargingIntervalFromEventCost(oEC *EventCost, cIlIdx int) {
 	lenChargers := len(ec.Charges)
 	if lenChargers != 0 && ec.Charges[lenChargers-1].PartiallyEquals(oEC.Charges[cIlIdx]) {
 		ec.Charges[lenChargers-1].CompressFactor += 1
@@ -365,7 +402,7 @@ func (ec *EventCost) Merge(ecs ...*EventCost) {
 	for _, newEC := range ecs {
 		ec.AccountSummary = newEC.AccountSummary // updated AccountSummary information
 		for cIlIdx := range newEC.Charges {
-			ec.AppendChargingIntervalFromEventCost(newEC, cIlIdx)
+			ec.appendChargingIntervalFromEventCost(newEC, cIlIdx)
 		}
 	}
 	ec.ResetCounters()

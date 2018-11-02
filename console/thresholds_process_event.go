@@ -19,14 +19,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 package console
 
 import (
-	"github.com/cgrates/cgrates/engine"
+	"time"
+
+	"github.com/cgrates/cgrates/dispatchers"
+	"github.com/cgrates/cgrates/utils"
 )
 
 func init() {
 	c := &CmdThresholdProcessEvent{
 		name:      "thresholds_process_event",
-		rpcMethod: "ThresholdSv1.ProcessEvent",
-		rpcParams: &engine.ArgsProcessEvent{},
+		rpcMethod: utils.ThresholdSv1ProcessEvent,
+		rpcParams: &dispatchers.ArgsProcessEventWithApiKey{},
 	}
 	commands[c.Name()] = c
 	c.CommandExecuter = &CommandExecuter{c}
@@ -35,7 +38,7 @@ func init() {
 type CmdThresholdProcessEvent struct {
 	name      string
 	rpcMethod string
-	rpcParams *engine.ArgsProcessEvent
+	rpcParams *dispatchers.ArgsProcessEventWithApiKey
 	*CommandExecuter
 }
 
@@ -49,16 +52,19 @@ func (self *CmdThresholdProcessEvent) RpcMethod() string {
 
 func (self *CmdThresholdProcessEvent) RpcParams(reset bool) interface{} {
 	if reset || self.rpcParams == nil {
-		self.rpcParams = &engine.ArgsProcessEvent{}
+		self.rpcParams = &dispatchers.ArgsProcessEventWithApiKey{}
 	}
 	return self.rpcParams
 }
 
 func (self *CmdThresholdProcessEvent) PostprocessRpcParams() error {
+	if self.rpcParams.Time == nil {
+		self.rpcParams.Time = utils.TimePointer(time.Now())
+	}
 	return nil
 }
 
 func (self *CmdThresholdProcessEvent) RpcResult() interface{} {
-	var s int
-	return &s
+	var ids []string
+	return &ids
 }

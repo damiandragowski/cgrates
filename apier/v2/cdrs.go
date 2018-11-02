@@ -27,7 +27,7 @@ import (
 
 // Retrieves CDRs based on the filters
 func (apier *ApierV2) GetCdrs(attrs utils.RPCCDRsFilter, reply *[]*engine.ExternalCDR) error {
-	cdrsFltr, err := attrs.AsCDRsFilter(apier.Config.DefaultTimezone)
+	cdrsFltr, err := attrs.AsCDRsFilter(apier.Config.GeneralCfg().DefaultTimezone)
 	if err != nil {
 		return utils.NewErrServerError(err)
 	}
@@ -47,7 +47,7 @@ func (apier *ApierV2) GetCdrs(attrs utils.RPCCDRsFilter, reply *[]*engine.Extern
 }
 
 func (apier *ApierV2) CountCdrs(attrs utils.RPCCDRsFilter, reply *int64) error {
-	cdrsFltr, err := attrs.AsCDRsFilter(apier.Config.DefaultTimezone)
+	cdrsFltr, err := attrs.AsCDRsFilter(apier.Config.GeneralCfg().DefaultTimezone)
 	if err != nil {
 		if err.Error() != utils.NotFoundCaps {
 			err = utils.NewErrServerError(err)
@@ -70,4 +70,13 @@ type CdrsV2 struct {
 
 func (self *CdrsV2) StoreSMCost(args engine.ArgsV2CDRSStoreSMCost, reply *string) error {
 	return self.CdrSrv.V2StoreSMCost(args, reply)
+}
+
+func (self *CdrsV2) ProcessCDR(cgrEv *utils.CGREvent, reply *string) error {
+	return self.CdrSrv.V2ProcessCDR(cgrEv, reply)
+}
+
+// RateCDRs will rate/re-rate CDRs using ChargerS
+func (self *CdrsV2) RateCDRs(args *utils.RPCCDRsFilter, reply *string) error {
+	return self.CdrSrv.V2RateCDRs(args, reply)
 }

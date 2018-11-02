@@ -30,12 +30,13 @@ import (
 
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
+	"github.com/cgrates/cgrates/utils"
 )
 
 var flatstoreCfgPath string
 var flatstoreCfg *config.CGRConfig
 var flatstoreRpc *rpc.Client
-var flatstoreCdrcCfg *config.CdrcConfig
+var flatstoreCdrcCfg *config.CdrcCfg
 
 var fullSuccessfull = `INVITE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9e@0:0:0:0:0:0:0:0|200|OK|1436454408|*prepaid|1001|1002||3401:2069362475
 BYE|2daec40c|548625ac|dd0c4c617a9919d29a6175cdff223a9e@0:0:0:0:0:0:0:0|200|OK|1436454410|||||3401:2069362475
@@ -105,7 +106,7 @@ func TestFlatstoreitStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func TestFlatstoreitRpcConn(t *testing.T) {
 	var err error
-	flatstoreRpc, err = jsonrpc.Dial("tcp", flatstoreCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	flatstoreRpc, err = jsonrpc.Dial("tcp", flatstoreCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -144,5 +145,19 @@ func TestFlatstoreitProcessFiles(t *testing.T) {
 		t.Error(err)
 	} else if len(ePartContent) != len(string(partContent)) {
 		t.Errorf("Expecting:\n%s\nReceived:\n%s", ePartContent, string(partContent))
+	}
+}
+
+func TestFlatstoreitAnalyseCDRs(t *testing.T) {
+	var reply []*engine.ExternalCDR
+	if err := flatstoreRpc.Call("ApierV2.GetCdrs", utils.RPCCDRsFilter{}, &reply); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if len(reply) != 13 {
+		t.Error("Unexpected number of CDRs returned: ", len(reply))
+	}
+	if err := flatstoreRpc.Call("ApierV2.GetCdrs", utils.RPCCDRsFilter{MinUsage: "1"}, &reply); err != nil {
+		t.Error("Unexpected error: ", err.Error())
+	} else if len(reply) != 7 {
+		t.Error("Unexpected number of CDRs returned: ", len(reply))
 	}
 }

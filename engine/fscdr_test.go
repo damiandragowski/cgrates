@@ -391,6 +391,7 @@ var body = []byte(`{
 		}
 	}]
 }`)
+
 var fsCdrCfg *config.CGRConfig
 
 func TestFsCdrInterfaces(t *testing.T) {
@@ -410,7 +411,7 @@ func TestFsCdrFirstNonEmpty(t *testing.T) {
 }
 
 func TestFsCdrCDRFields(t *testing.T) {
-	fsCdrCfg.CDRSExtraFields = []*utils.RSRField{&utils.RSRField{Id: "sip_user_agent"}}
+	fsCdrCfg.CdrsCfg().CDRSExtraFields = []*utils.RSRField{{Id: "sip_user_agent"}}
 	fsCdr, err := NewFSCdr(body, fsCdrCfg)
 	if err != nil {
 		t.Errorf("Error loading cdr: %v", err)
@@ -420,7 +421,7 @@ func TestFsCdrCDRFields(t *testing.T) {
 	expctCDR := &CDR{
 		CGRID: "24b5766be325fa751fab5a0a06373e106f33a257",
 		ToR:   utils.VOICE, OriginID: "3da8bf84-c133-4959-9e24-e72875cb33a1",
-		OriginHost: "10.10.10.204", Source: "freeswitch_json", Category: "call",
+		OriginHost: "", Source: "freeswitch_json", Category: "call",
 		RequestType: utils.META_RATED, Tenant: "cgrates.org",
 		Account: "1001", Subject: "1001",
 		Destination: "1002", SetupTime: setupTime,
@@ -444,7 +445,7 @@ func TestFsCdrSearchExtraField(t *testing.T) {
 	fsCdr, _ := NewFSCdr(body, fsCdrCfg)
 	rsrSt1, _ := utils.NewRSRField("^injected_value")
 	rsrSt2, _ := utils.NewRSRField("^injected_hdr::injected_value/")
-	fsCdrCfg.CDRSExtraFields = []*utils.RSRField{&utils.RSRField{Id: "caller_id_name"}, rsrSt1, rsrSt2}
+	fsCdrCfg.CdrsCfg().CDRSExtraFields = []*utils.RSRField{{Id: "caller_id_name"}, rsrSt1, rsrSt2}
 	extraFields := fsCdr.getExtraFields()
 	if len(extraFields) != 3 || extraFields["caller_id_name"] != "1001" ||
 		extraFields["injected_value"] != "injected_value" ||
@@ -462,7 +463,7 @@ func TestFsCdrSearchExtraFieldInSlice(t *testing.T) {
 }
 
 func TestFsCdrSearchReplaceInExtraFields(t *testing.T) {
-	fsCdrCfg.CDRSExtraFields = utils.ParseRSRFieldsMustCompile(`read_codec;~sip_user_agent:s/([A-Za-z]*).+/$1/;write_codec`, utils.INFIELD_SEP)
+	fsCdrCfg.CdrsCfg().CDRSExtraFields = utils.ParseRSRFieldsMustCompile(`read_codec;~sip_user_agent:s/([A-Za-z]*).+/$1/;write_codec`, utils.INFIELD_SEP)
 	fsCdr, _ := NewFSCdr(body, fsCdrCfg)
 	extraFields := fsCdr.getExtraFields()
 	if len(extraFields) != 3 {
@@ -509,12 +510,12 @@ func TestFsCdrDDazRSRExtraFields(t *testing.T) {
     }
 }`)
 	var err error
-	fsCdrCfg, err = config.NewCGRConfigFromJsonString(eFieldsCfg)
+	fsCdrCfg, err = config.NewCGRConfigFromJsonStringWithDefaults(eFieldsCfg)
 	expCdrExtra := utils.ParseRSRFieldsMustCompile(`~effective_caller_id_number:s/(\d+)/+$1/`, utils.INFIELD_SEP)
 	if err != nil {
 		t.Error("Could not parse the config", err.Error())
-	} else if !reflect.DeepEqual(expCdrExtra[0], fsCdrCfg.CDRSExtraFields[0]) { // Kinda deepEqual bug since without index does not match
-		t.Errorf("Expecting: %+v, received: %+v", expCdrExtra, fsCdrCfg.CDRSExtraFields)
+	} else if !reflect.DeepEqual(expCdrExtra[0], fsCdrCfg.CdrsCfg().CDRSExtraFields[0]) { // Kinda deepEqual bug since without index does not match
+		t.Errorf("Expecting: %+v, received: %+v", expCdrExtra, fsCdrCfg.CdrsCfg().CDRSExtraFields)
 	}
 	fsCdr, err := NewFSCdr(simpleJsonCdr, fsCdrCfg)
 	if err != nil {
@@ -536,5 +537,4 @@ func TestFsCdrFirstDefined(t *testing.T) {
 	if value != "1001" {
 		t.Errorf("Expecting: 1001, received: %s", value)
 	}
-
 }

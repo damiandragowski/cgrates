@@ -94,8 +94,10 @@ var sTestsFilterIndexesSV1 = []func(t *testing.T){
 // Test start here
 func TestFIdxV1ITMySQL(t *testing.T) {
 	cfg, _ := config.NewDefaultCGRConfig()
-	rdsITdb, err = engine.NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 10,
-		cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
+	rdsITdb, err = engine.NewRedisStorage(
+		fmt.Sprintf("%s:%s", cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort),
+		10, cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
+		utils.REDIS_MAX_CONNS, nil, "")
 
 	if err != nil {
 		t.Fatal("Could not connect to Redis", err.Error())
@@ -113,9 +115,10 @@ func TestFIdxV1ITMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mgoITdb, err = engine.NewMongoStorage(mgoITCfg.DataDbHost, mgoITCfg.DataDbPort,
-		mgoITCfg.DataDbName, mgoITCfg.DataDbUser, mgoITCfg.DataDbPass,
-		utils.DataDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize); err != nil {
+	if mgoITdb, err = engine.NewMongoStorage(mgoITCfg.DataDbCfg().DataDbHost,
+		mgoITCfg.DataDbCfg().DataDbPort, mgoITCfg.DataDbCfg().DataDbName,
+		mgoITCfg.DataDbCfg().DataDbUser, mgoITCfg.DataDbCfg().DataDbPass,
+		utils.DataDB, nil, mgoITCfg.CacheCfg()); err != nil {
 		t.Fatal(err)
 	}
 	onStor = engine.NewDataManager(mgoITdb)
@@ -168,7 +171,7 @@ func testV1FIdxStartEngine(t *testing.T) {
 
 func testV1FIdxRpcConn(t *testing.T) {
 	var err error
-	tFIdxRpc, err = jsonrpc.Dial("tcp", tSv1Cfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	tFIdxRpc, err = jsonrpc.Dial("tcp", tSv1Cfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal("Could not connect to rater: ", err.Error())
 	}
@@ -182,7 +185,7 @@ func testV1FIdxSetThresholdProfile(t *testing.T) {
 		Tenant: tenant,
 		ID:     "TestFilter",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -213,7 +216,7 @@ func testV1FIdxSetThresholdProfile(t *testing.T) {
 			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 			ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
-		Recurrent: true,
+		MaxHits:   1,
 		MinSleep:  time.Duration(5 * time.Minute),
 		Blocker:   false,
 		Weight:    20.0,
@@ -235,16 +238,8 @@ func testV1FIdxSetThresholdProfile(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
-		t.Error(err)
-	}
-	if _, err = onStor.GetFilterReverseIndexes(utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		tenant, nil); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }
@@ -261,6 +256,7 @@ func testV1FIdxComputeThresholdsIndexes(t *testing.T) {
 			ResourceIDs:  &emptySlice,
 			StatIDs:      &emptySlice,
 			SupplierIDs:  &emptySlice,
+			ChargerIDs:   &emptySlice,
 		}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -278,16 +274,6 @@ func testV1FIdxComputeThresholdsIndexes(t *testing.T) {
 	if !reflect.DeepEqual(expectedIDX, indexes) {
 		t.Errorf("Expecting: %+v, received: %+v", expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix], tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxSetSecondThresholdProfile(t *testing.T) {
@@ -297,7 +283,7 @@ func testV1FIdxSetSecondThresholdProfile(t *testing.T) {
 		Tenant: tenant,
 		ID:     "TestFilter2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1002"},
@@ -328,7 +314,7 @@ func testV1FIdxSetSecondThresholdProfile(t *testing.T) {
 			ActivationTime: time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 			ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
-		Recurrent: true,
+		MaxHits:   1,
 		MinSleep:  time.Duration(5 * time.Minute),
 		Blocker:   false,
 		Weight:    20.0,
@@ -348,11 +334,6 @@ func testV1FIdxSetSecondThresholdProfile(t *testing.T) {
 	}
 	if err = onStor.RemoveFilterIndexes(
 		utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
-	if err := onStor.RemoveFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
 		tenant); err != nil {
 		t.Error(err)
 	}
@@ -376,6 +357,7 @@ func testV1FIdxSecondComputeThresholdsIndexes(t *testing.T) {
 			ResourceIDs:  &emptySlice,
 			StatIDs:      &emptySlice,
 			SupplierIDs:  &emptySlice,
+			ChargerIDs:   &emptySlice,
 		}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -393,17 +375,6 @@ func testV1FIdxSecondComputeThresholdsIndexes(t *testing.T) {
 	if !reflect.DeepEqual(expectedIDX, indexes) {
 		t.Errorf("Expecting: %+v, received: %+v", expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE2": {"*string:Account:1002": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v", expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxThirdComputeThresholdsIndexes(t *testing.T) {
@@ -417,6 +388,7 @@ func testV1FIdxThirdComputeThresholdsIndexes(t *testing.T) {
 		ResourceIDs:  &emptySlice,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -439,22 +411,6 @@ func testV1FIdxThirdComputeThresholdsIndexes(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {
-			"*string:Account:1001": true},
-		"TEST_PROFILE2": {
-			"*string:Account:1002": true},
-	}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ThresholdProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxRemoveThresholdProfile(t *testing.T) {
@@ -469,6 +425,7 @@ func testV1FIdxRemoveThresholdProfile(t *testing.T) {
 		ResourceIDs:  &emptySlice,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -502,10 +459,6 @@ func testV1FIdxRemoveThresholdProfile(t *testing.T) {
 		tenant, engine.MetaString, nil); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
-	if _, err = onStor.GetFilterReverseIndexes(utils.PrefixToIndexCache[utils.ThresholdProfilePrefix],
-		tenant, nil); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
 }
 
 //StatQueueProfile
@@ -516,7 +469,7 @@ func testV1FIdxSetStatQueueProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -549,11 +502,11 @@ func testV1FIdxSetStatQueueProfileIndexes(t *testing.T) {
 		QueueLength: 10,
 		TTL:         time.Duration(10) * time.Second,
 		Metrics: []*utils.MetricWithParams{
-			&utils.MetricWithParams{
+			{
 				MetricID:   "*sum",
 				Parameters: "",
 			},
-			&utils.MetricWithParams{
+			{
 				MetricID:   "*acd",
 				Parameters: "",
 			},
@@ -579,10 +532,6 @@ func testV1FIdxSetStatQueueProfileIndexes(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
 		t.Error(err)
@@ -600,6 +549,7 @@ func testV1FIdxComputeStatQueueProfileIndexes(t *testing.T) {
 		ResourceIDs:  &emptySlice,
 		StatIDs:      nil,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -618,18 +568,6 @@ func testV1FIdxComputeStatQueueProfileIndexes(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxSetSecondStatQueueProfileIndexes(t *testing.T) {
@@ -639,7 +577,7 @@ func testV1FIdxSetSecondStatQueueProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -672,11 +610,11 @@ func testV1FIdxSetSecondStatQueueProfileIndexes(t *testing.T) {
 		QueueLength: 10,
 		TTL:         time.Duration(10) * time.Second,
 		Metrics: []*utils.MetricWithParams{
-			&utils.MetricWithParams{
+			{
 				MetricID:   "*sum",
 				Parameters: "",
 			},
-			&utils.MetricWithParams{
+			{
 				MetricID:   "*acd",
 				Parameters: "",
 			},
@@ -703,11 +641,6 @@ func testV1FIdxSetSecondStatQueueProfileIndexes(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(
 		utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
@@ -728,6 +661,7 @@ func testV1FIdxSecondComputeStatQueueProfileIndexes(t *testing.T) {
 			ResourceIDs:  &emptySlice,
 			StatIDs:      &stid,
 			SupplierIDs:  &emptySlice,
+			ChargerIDs:   &emptySlice,
 		}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -746,18 +680,6 @@ func testV1FIdxSecondComputeStatQueueProfileIndexes(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE2": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.StatQueueProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxRemoveStatQueueProfile(t *testing.T) {
@@ -772,6 +694,7 @@ func testV1FIdxRemoveStatQueueProfile(t *testing.T) {
 		ResourceIDs:  &emptySlice,
 		StatIDs:      nil,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -800,12 +723,8 @@ func testV1FIdxRemoveStatQueueProfile(t *testing.T) {
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
-	if _, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
+	if _, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.StatQueueProfilePrefix],
 		tenant, engine.MetaString, nil); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
-	if _, err = onStor.GetFilterReverseIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
-		tenant, nil); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }
@@ -818,7 +737,7 @@ func testV1FIdxSetResourceProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_RES_RCFG1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -869,10 +788,6 @@ func testV1FIdxSetResourceProfileIndexes(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
 		t.Error(err)
@@ -890,6 +805,7 @@ func testV1FIdxComputeResourceProfileIndexes(t *testing.T) {
 		ResourceIDs:  nil,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -908,18 +824,6 @@ func testV1FIdxComputeResourceProfileIndexes(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"RCFG1": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxSetSecondResourceProfileIndexes(t *testing.T) {
@@ -929,7 +833,7 @@ func testV1FIdxSetSecondResourceProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -980,11 +884,6 @@ func testV1FIdxSetSecondResourceProfileIndexes(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(
 		utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
@@ -1005,6 +904,7 @@ func testV1FIdxSecondComputeResourceProfileIndexes(t *testing.T) {
 			ResourceIDs:  &rsid,
 			StatIDs:      &emptySlice,
 			SupplierIDs:  &emptySlice,
+			ChargerIDs:   &emptySlice,
 		}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1020,17 +920,6 @@ func testV1FIdxSecondComputeResourceProfileIndexes(t *testing.T) {
 	if !reflect.DeepEqual(expectedIDX, indexes) {
 		t.Errorf("Expecting: %+v, received: %+v", expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"RCFG2": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.ResourceProfilesPrefix], tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxRemoveResourceProfile(t *testing.T) {
@@ -1045,6 +934,7 @@ func testV1FIdxRemoveResourceProfile(t *testing.T) {
 		ResourceIDs:  nil,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1075,10 +965,6 @@ func testV1FIdxRemoveResourceProfile(t *testing.T) {
 		tenant, engine.MetaString, nil); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
-	if _, err = onStor.GetFilterReverseIndexes(utils.PrefixToIndexCache[utils.ResourceProfilesPrefix],
-		tenant, nil); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
 }
 
 //SupplierProfile
@@ -1089,7 +975,7 @@ func testV1FIdxSetSupplierProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -1118,7 +1004,7 @@ func testV1FIdxSetSupplierProfileIndexes(t *testing.T) {
 		Sorting:           "Sort1",
 		SortingParameters: []string{"Param1", "Param2"},
 		Suppliers: []*engine.Supplier{
-			&engine.Supplier{
+			{
 				ID:            "SPL1",
 				RatingPlanIDs: []string{"RP1"},
 				FilterIDs:     []string{"FLTR_1"},
@@ -1146,10 +1032,6 @@ func testV1FIdxSetSupplierProfileIndexes(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
 		t.Error(err)
@@ -1167,6 +1049,7 @@ func testV1FIdxComputeSupplierProfileIndexes(t *testing.T) {
 		ResourceIDs:  &emptySlice,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  nil,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1185,18 +1068,6 @@ func testV1FIdxComputeSupplierProfileIndexes(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE1": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.SupplierProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxSetSecondSupplierProfileIndexes(t *testing.T) {
@@ -1206,7 +1077,7 @@ func testV1FIdxSetSecondSupplierProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -1235,7 +1106,7 @@ func testV1FIdxSetSecondSupplierProfileIndexes(t *testing.T) {
 		Sorting:           "Sort1",
 		SortingParameters: []string{"Param1", "Param2"},
 		Suppliers: []*engine.Supplier{
-			&engine.Supplier{
+			{
 				ID:            "SPL1",
 				RatingPlanIDs: []string{"RP1"},
 				FilterIDs:     []string{"FLTR_2"},
@@ -1264,11 +1135,6 @@ func testV1FIdxSetSecondSupplierProfileIndexes(t *testing.T) {
 		tenant); err != nil {
 		t.Error(err)
 	}
-	if err := onStor.RemoveFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.SupplierProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
 	if indexes, err = onStor.GetFilterIndexes(
 		utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
 		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
@@ -1289,6 +1155,7 @@ func testV1FIdxSecondComputeSupplierProfileIndexes(t *testing.T) {
 			ResourceIDs:  &emptySlice,
 			StatIDs:      &emptySlice,
 			SupplierIDs:  &spid,
+			ChargerIDs:   &emptySlice,
 		}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1307,18 +1174,6 @@ func testV1FIdxSecondComputeSupplierProfileIndexes(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
 	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"TEST_PROFILE2": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.SupplierProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
-	}
 }
 
 func testV1FIdxRemoveSupplierProfile(t *testing.T) {
@@ -1333,6 +1188,7 @@ func testV1FIdxRemoveSupplierProfile(t *testing.T) {
 		ResourceIDs:  &emptySlice,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  nil,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1365,10 +1221,6 @@ func testV1FIdxRemoveSupplierProfile(t *testing.T) {
 		tenant, engine.MetaString, nil); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
-	if _, err = onStor.GetFilterReverseIndexes(utils.PrefixToIndexCache[utils.SupplierProfilePrefix],
-		tenant, nil); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
 }
 
 //AttributeProfile
@@ -1379,7 +1231,7 @@ func testV1FIdxSetAttributeProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -1396,7 +1248,8 @@ func testV1FIdxSetAttributeProfileIndexes(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile", &utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err == nil ||
+	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile",
+		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
@@ -1410,10 +1263,10 @@ func testV1FIdxSetAttributeProfileIndexes(t *testing.T) {
 			ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
 		Attributes: []*engine.Attribute{
-			&engine.Attribute{
+			{
 				FieldName:  "FL1",
 				Initial:    "In1",
-				Substitute: "Al1",
+				Substitute: config.NewRSRParsersMustCompile("Al1", true),
 				Append:     true,
 			},
 		},
@@ -1424,7 +1277,8 @@ func testV1FIdxSetAttributeProfileIndexes(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile", &utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
+	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile",
+		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest"}, &reply); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(alsPrf.FilterIDs, reply.FilterIDs) {
 		t.Errorf("Expecting : %+v, received: %+v", alsPrf.FilterIDs, reply.FilterIDs)
@@ -1436,15 +1290,11 @@ func testV1FIdxSetAttributeProfileIndexes(t *testing.T) {
 		t.Errorf("Expecting : %+v, received: %+v", alsPrf.ID, reply.ID)
 	}
 	if err = onStor.RemoveFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
-	if err := onStor.RemoveFilterReverseIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant); err != nil {
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS)); err != nil {
 		t.Error(err)
 	}
 	if indexes, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS), engine.MetaString, nil); err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }
@@ -1455,11 +1305,13 @@ func testV1FIdxComputeAttributeProfileIndexes(t *testing.T) {
 	var reply2 string
 	if err := tFIdxRpc.Call(utils.ApierV1ComputeFilterIndexes, utils.ArgsComputeFilterIndexes{
 		Tenant:       "cgrates.org",
+		Context:      utils.MetaSessionS,
 		ThresholdIDs: &emptySlice,
 		AttributeIDs: nil,
 		ResourceIDs:  &emptySlice,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1470,23 +1322,12 @@ func testV1FIdxComputeAttributeProfileIndexes(t *testing.T) {
 		"*string:Account:1001": {"ApierTest": true}}
 	indexes, err := onStor.GetFilterIndexes(
 		utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant, engine.MetaString, nil)
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS), engine.MetaString, nil)
 	if err != nil {
 		t.Error(err)
 	}
 	if !reflect.DeepEqual(expectedIDX, indexes) {
 		t.Errorf("Expecting: %+v, received: %+v", expectedIDX, utils.ToJSON(indexes))
-	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"ApierTest": {"*string:Account:1001": true}}
-	if indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		tenant, nil); err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
 	}
 }
 
@@ -1497,7 +1338,7 @@ func testV1FIdxSetSecondAttributeProfileIndexes(t *testing.T) {
 		Tenant: tenant,
 		ID:     "FLTR_2",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "Account",
 				Type:      "*string",
 				Values:    []string{"1001"},
@@ -1514,7 +1355,8 @@ func testV1FIdxSetSecondAttributeProfileIndexes(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile", &utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest2"}, &reply); err == nil ||
+	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile",
+		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest2"}, &reply); err == nil ||
 		err.Error() != utils.ErrNotFound.Error() {
 		t.Error(err)
 	}
@@ -1528,10 +1370,10 @@ func testV1FIdxSetSecondAttributeProfileIndexes(t *testing.T) {
 			ExpiryTime:     time.Date(2014, 7, 14, 14, 35, 0, 0, time.UTC),
 		},
 		Attributes: []*engine.Attribute{
-			&engine.Attribute{
+			{
 				FieldName:  "FL1",
 				Initial:    "In1",
-				Substitute: "Al1",
+				Substitute: config.NewRSRParsersMustCompile("Al1", true),
 				Append:     true,
 			},
 		},
@@ -1542,7 +1384,8 @@ func testV1FIdxSetSecondAttributeProfileIndexes(t *testing.T) {
 	} else if result != utils.OK {
 		t.Error("Unexpected reply returned", result)
 	}
-	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile", &utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest2"}, &reply); err != nil {
+	if err := tFIdxRpc.Call("ApierV1.GetAttributeProfile",
+		&utils.TenantID{Tenant: "cgrates.org", ID: "ApierTest2"}, &reply); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(alsPrf.FilterIDs, reply.FilterIDs) {
 		t.Errorf("Expecting : %+v, received: %+v", alsPrf.FilterIDs, reply.FilterIDs)
@@ -1555,17 +1398,12 @@ func testV1FIdxSetSecondAttributeProfileIndexes(t *testing.T) {
 	}
 	if err = onStor.RemoveFilterIndexes(
 		utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant); err != nil {
-		t.Error(err)
-	}
-	if err := onStor.RemoveFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		tenant); err != nil {
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS)); err != nil {
 		t.Error(err)
 	}
 	if indexes, err = onStor.GetFilterIndexes(
 		utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant, engine.MetaString, nil); err != utils.ErrNotFound {
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS), utils.EmptyString, nil); err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }
@@ -1578,11 +1416,13 @@ func testV1FIdxSecondComputeAttributeProfileIndexes(t *testing.T) {
 	if err := tFIdxRpc.Call(utils.ApierV1ComputeFilterIndexes,
 		utils.ArgsComputeFilterIndexes{
 			Tenant:       "cgrates.org",
+			Context:      utils.MetaSessionS,
 			ThresholdIDs: &emptySlice,
 			AttributeIDs: &apid,
 			ResourceIDs:  &emptySlice,
 			StatIDs:      &emptySlice,
 			SupplierIDs:  &emptySlice,
+			ChargerIDs:   &emptySlice,
 		}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1593,25 +1433,13 @@ func testV1FIdxSecondComputeAttributeProfileIndexes(t *testing.T) {
 		"*string:Account:1001": {"ApierTest2": true}}
 	indexes, err := onStor.GetFilterIndexes(
 		utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant, engine.MetaString, nil)
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS), engine.MetaString, nil)
 	if err != nil {
 		t.Error(err)
 	}
 	if !reflect.DeepEqual(expectedIDX, indexes) {
 		t.Errorf("Expecting: %+v, received: %+v",
 			expectedIDX, utils.ToJSON(indexes))
-	}
-	expectedRevIDX := map[string]utils.StringMap{
-		"ApierTest2": {"*string:Account:1001": true}}
-	indexes, err = onStor.GetFilterReverseIndexes(
-		utils.PrefixToRevIndexCache[utils.AttributeProfilePrefix],
-		tenant, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	if !reflect.DeepEqual(expectedRevIDX, indexes) {
-		t.Errorf("Expecting: %+v, received: %+v",
-			expectedRevIDX, utils.ToJSON(indexes))
 	}
 }
 
@@ -1622,11 +1450,13 @@ func testV1FIdxRemoveAttributeProfile(t *testing.T) {
 	var reply2 string
 	if err := tFIdxRpc.Call(utils.ApierV1ComputeFilterIndexes, utils.ArgsComputeFilterIndexes{
 		Tenant:       "cgrates.org",
+		Context:      utils.MetaSessionS,
 		ThresholdIDs: &emptySlice,
 		AttributeIDs: nil,
 		ResourceIDs:  &emptySlice,
 		StatIDs:      &emptySlice,
 		SupplierIDs:  &emptySlice,
+		ChargerIDs:   &emptySlice,
 	}, &reply2); err != nil {
 		t.Error(err)
 	}
@@ -1655,11 +1485,7 @@ func testV1FIdxRemoveAttributeProfile(t *testing.T) {
 		t.Error(err)
 	}
 	if _, err = onStor.GetFilterIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant, engine.MetaString, nil); err != nil && err != utils.ErrNotFound {
-		t.Error(err)
-	}
-	if _, err = onStor.GetFilterReverseIndexes(utils.PrefixToIndexCache[utils.AttributeProfilePrefix],
-		tenant, nil); err != nil && err != utils.ErrNotFound {
+		utils.ConcatenatedKey(tenant, utils.MetaSessionS), engine.MetaString, nil); err != nil && err != utils.ErrNotFound {
 		t.Error(err)
 	}
 }
@@ -1725,24 +1551,27 @@ func testV1FIdxGetFilterIndexes1(t *testing.T) {
 		ItemType: "*resources",
 	}
 	expectedIndexes := []string{
-		"*string:Account:1003:ResProfile3",
 		"*string:Account:3001:ResProfile3",
-		"*prefix:Destination:200:ResProfile3",
 		"*string:Destination:1001:ResProfile1",
 		"*string:Destination:1001:ResProfile2",
 		"*string:Destination:1001:ResProfile3",
 		"*string:Account:1002:ResProfile1",
 		"*string:Account:1002:ResProfile2",
 		"*string:Account:1002:ResProfile3",
+		"*string:Account:1003:ResProfile3",
+		"*prefix:Destination:20:ResProfile1",
+		"*prefix:Destination:20:ResProfile2",
 		"*string:Account:1001:ResProfile1",
 		"*string:Account:1001:ResProfile2",
-		"*string:Destination:2001:ResProfile3",
+		"*string:Account:2002:ResProfile2",
+		"*prefix:Destination:1001:ResProfile3",
+		"*prefix:Destination:200:ResProfile3",
 		"*string:Destination:2001:ResProfile1",
 		"*string:Destination:2001:ResProfile2",
-		"*prefix:Destination:1001:ResProfile3",
-		"*string:Account:2002:ResProfile2",
-		"*prefix:Account:10:ResProfile3",
-		"*prefix:Destination:20:ResProfile2"}
+		"*string:Destination:2001:ResProfile3",
+		"*prefix:Account:10:ResProfile1",
+		"*prefix:Account:10:ResProfile2",
+		"*prefix:Account:10:ResProfile3"}
 	reply := []string{}
 	if err := tFIdxRpc.Call("ApierV1.GetFilterIndexes", arg, &reply); err != nil {
 		t.Error(err)
@@ -1787,10 +1616,13 @@ func testV1FIdxGetFilterIndexes3(t *testing.T) {
 		FilterType: "*prefix",
 	}
 	expectedIndexes := []string{
-		"*prefix:Destination:200:ResProfile3",
-		"*prefix:Destination:1001:ResProfile3",
+		"*prefix:Destination:20:ResProfile1",
+		"*prefix:Destination:20:ResProfile2",
+		"*prefix:Account:10:ResProfile1",
+		"*prefix:Account:10:ResProfile2",
 		"*prefix:Account:10:ResProfile3",
-		"*prefix:Destination:20:ResProfile2"}
+		"*prefix:Destination:200:ResProfile3",
+		"*prefix:Destination:1001:ResProfile3"}
 	reply := []string{}
 	if err := tFIdxRpc.Call("ApierV1.GetFilterIndexes", arg, &reply); err != nil {
 		t.Error(err)

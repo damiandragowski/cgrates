@@ -50,6 +50,7 @@ var sTestsFilter = []func(t *testing.T){
 	testFilterGetFilterBeforeSet,
 	testFilterSetFilter,
 	testFilterGetFilterAfterSet,
+	testFilterGetFilterIDs,
 	testFilterUpdateFilter,
 	testFilterGetFilterAfterUpdate,
 	testFilterRemoveFilter,
@@ -67,13 +68,6 @@ func TestFilterITMySql(t *testing.T) {
 
 func TestFilterITMongo(t *testing.T) {
 	filterConfigDIR = "tutmongo"
-	for _, stest := range sTestsFilter {
-		t.Run(filterConfigDIR, stest)
-	}
-}
-
-func TestFilterITPG(t *testing.T) {
-	filterConfigDIR = "tutpostgres"
 	for _, stest := range sTestsFilter {
 		t.Run(filterConfigDIR, stest)
 	}
@@ -113,7 +107,7 @@ func testFilterStartEngine(t *testing.T) {
 // Connect rpc client to rater
 func testFilterRpcConn(t *testing.T) {
 	var err error
-	filterRPC, err = jsonrpc.Dial("tcp", filterCfg.RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
+	filterRPC, err = jsonrpc.Dial("tcp", filterCfg.ListenCfg().RPCJSONListen) // We connect over JSON so we can also troubleshoot if needed
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +125,7 @@ func testFilterSetFilter(t *testing.T) {
 		Tenant: "cgrates.org",
 		ID:     "Filter1",
 		Rules: []*engine.FilterRule{
-			&engine.FilterRule{
+			{
 				FieldName: "*string",
 				Type:      "Account",
 				Values:    []string{"1001", "1002"},
@@ -151,6 +145,16 @@ func testFilterSetFilter(t *testing.T) {
 	}
 }
 
+func testFilterGetFilterIDs(t *testing.T) {
+	expected := []string{"Filter1"}
+	var result []string
+	if err := filterRPC.Call("ApierV1.GetFilterIDs", "cgrates.org", &result); err != nil {
+		t.Error(err)
+	} else if len(expected) != len(result) {
+		t.Errorf("Expecting : %+v, received: %+v", expected, result)
+	}
+}
+
 func testFilterGetFilterAfterSet(t *testing.T) {
 	var reply *engine.Filter
 	if err := filterRPC.Call("ApierV1.GetFilter", &utils.TenantID{Tenant: "cgrates.org", ID: "Filter1"}, &reply); err != nil {
@@ -162,12 +166,12 @@ func testFilterGetFilterAfterSet(t *testing.T) {
 
 func testFilterUpdateFilter(t *testing.T) {
 	filter.Rules = []*engine.FilterRule{
-		&engine.FilterRule{
+		{
 			FieldName: "*string",
 			Type:      "Account",
 			Values:    []string{"1001", "1002"},
 		},
-		&engine.FilterRule{
+		{
 			FieldName: engine.MetaPrefix,
 			Type:      "Destination",
 			Values:    []string{"10", "20"},

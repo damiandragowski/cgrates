@@ -41,7 +41,10 @@ var sTestsDMit = []func(t *testing.T){
 
 func TestDMitRedis(t *testing.T) {
 	cfg, _ := config.NewDefaultCGRConfig()
-	dataDB, err := NewRedisStorage(fmt.Sprintf("%s:%s", cfg.DataDbHost, cfg.DataDbPort), 4, cfg.DataDbPass, cfg.DBDataEncoding, utils.REDIS_MAX_CONNS, nil, 1)
+	dataDB, err := NewRedisStorage(
+		fmt.Sprintf("%s:%s", cfg.DataDbCfg().DataDbHost, cfg.DataDbCfg().DataDbPort),
+		4, cfg.DataDbCfg().DataDbPass, cfg.GeneralCfg().DBDataEncoding,
+		utils.REDIS_MAX_CONNS, nil, "")
 	if err != nil {
 		t.Fatal("Could not connect to Redis", err.Error())
 	}
@@ -57,9 +60,10 @@ func TestDMitMongo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataDB, err := NewMongoStorage(mgoITCfg.StorDBHost, mgoITCfg.StorDBPort,
-		mgoITCfg.StorDBName, mgoITCfg.StorDBUser, mgoITCfg.StorDBPass,
-		utils.StorDB, nil, mgoITCfg.CacheCfg(), mgoITCfg.LoadHistorySize)
+	dataDB, err := NewMongoStorage(mgoITCfg.StorDbCfg().StorDBHost,
+		mgoITCfg.StorDbCfg().StorDBPort, mgoITCfg.StorDbCfg().StorDBName,
+		mgoITCfg.StorDbCfg().StorDBUser, mgoITCfg.StorDbCfg().StorDBPass,
+		utils.StorDB, nil, mgoITCfg.CacheCfg())
 	if err != nil {
 		t.Fatal("Could not connect to Mongo", err.Error())
 	}
@@ -99,7 +103,7 @@ func testDMitCRUDStatQueue(t *testing.T) {
 			},
 		},
 	}
-	if _, rcvErr := dm2.GetStatQueue(sq.Tenant, sq.ID, false, ""); rcvErr != utils.ErrNotFound {
+	if _, rcvErr := dm2.GetStatQueue(sq.Tenant, sq.ID, true, false, ""); rcvErr != utils.ErrNotFound {
 		t.Error(rcvErr)
 	}
 	if _, ok := Cache.Get(utils.CacheStatQueues, sq.TenantID()); ok != false {
@@ -111,7 +115,7 @@ func testDMitCRUDStatQueue(t *testing.T) {
 	if _, ok := Cache.Get(utils.CacheStatQueues, sq.TenantID()); ok != false {
 		t.Error("should not be in cache")
 	}
-	if rcv, err := dm2.GetStatQueue(sq.Tenant, sq.ID, false, ""); err != nil {
+	if rcv, err := dm2.GetStatQueue(sq.Tenant, sq.ID, true, false, ""); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(sq, rcv) {
 		t.Errorf("expecting: %v, received: %v", sq, rcv)
@@ -125,7 +129,7 @@ func testDMitCRUDStatQueue(t *testing.T) {
 	if _, ok := Cache.Get(utils.CacheStatQueues, sq.TenantID()); ok != false {
 		t.Error("should not be in cache")
 	}
-	if _, rcvErr := dm2.GetStatQueue(sq.Tenant, sq.ID, false, ""); rcvErr != utils.ErrNotFound {
+	if _, rcvErr := dm2.GetStatQueue(sq.Tenant, sq.ID, true, false, ""); rcvErr != utils.ErrNotFound {
 		t.Error(rcvErr)
 	}
 }

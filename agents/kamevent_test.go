@@ -95,47 +95,15 @@ func TestKamEvAsMapStringInterface(t *testing.T) {
 	expMp["from_tag"] = "bf71ad59"
 	expMp["to_tag"] = "7351fecf"
 	expMp["cgr_reqtype"] = utils.META_POSTPAID
+	expMp[utils.Source] = utils.KamailioAgent
 	rcv := kamEv.AsMapStringInterface()
 	if !reflect.DeepEqual(expMp, rcv) {
 		t.Errorf("Expecting: %+v, received: %+v", expMp, rcv)
 	}
 }
 
-func TestKamEvAsCDR(t *testing.T) {
-	timezone := config.CgrConfig().DefaultTimezone
-	expMp := make(map[string]string)
-	expMp["cgr_account"] = "1001"
-	expMp["cgr_duration"] = "3"
-	expMp["cgr_pdd"] = "4"
-	expMp["cgr_destination"] = "1002"
-	expMp[utils.CGR_SUPPLIER] = "supplier2"
-	expMp["cgr_answertime"] = "1419839310"
-	expMp[utils.CGR_DISCONNECT_CAUSE] = "200"
-	expMp["callid"] = "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0"
-	expMp["from_tag"] = "bf71ad59"
-	expMp["to_tag"] = "7351fecf"
-	expMp["cgr_reqtype"] = utils.META_POSTPAID
-	kamEv := KamEvent{"event": "CGR_CALL_END",
-		"callid":   "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0",
-		"from_tag": "bf71ad59", "to_tag": "7351fecf",
-		"cgr_reqtype": utils.META_POSTPAID, "cgr_account": "1001",
-		"cgr_destination": "1002", "cgr_answertime": "1419839310",
-		"cgr_duration": "3", "cgr_pdd": "4",
-		utils.CGR_SUPPLIER:         "supplier2",
-		utils.CGR_DISCONNECT_CAUSE: "200"}
-	eStoredCdr := &engine.CDR{
-		Tenant: "cgrates.org", Category: "call", Source: "KamailioEvent",
-		ToR: "*voice", Usage: 0, RequestType: "*rated",
-		ExtraFields: expMp, Cost: -1,
-	}
-	rcv := kamEv.AsCDR(timezone)
-	if !reflect.DeepEqual(eStoredCdr, rcv) {
-		t.Errorf("Expecting: %+v, received: %+v", eStoredCdr, rcv)
-	}
-}
-
 func TestKamEvAsCGREvent(t *testing.T) {
-	timezone := config.CgrConfig().DefaultTimezone
+	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
 	kamEv := KamEvent{"event": "CGR_CALL_END",
 		"callid":   "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0",
 		"from_tag": "bf71ad59", "to_tag": "7351fecf",
@@ -143,17 +111,19 @@ func TestKamEvAsCGREvent(t *testing.T) {
 		"cgr_destination": "1002", "cgr_answertime": "1419839310",
 		"cgr_duration": "3", "cgr_pdd": "4",
 		utils.CGR_SUPPLIER:         "supplier2",
-		utils.CGR_DISCONNECT_CAUSE: "200"}
+		utils.CGR_DISCONNECT_CAUSE: "200",
+		KamCGRContext:              "account_profile"}
 	sTime, err := utils.ParseTimeDetectLayout(kamEv[utils.AnswerTime], timezone)
 	if err != nil {
 		return
 	}
 	expected := &utils.CGREvent{
 		Tenant: utils.FirstNonEmpty(kamEv[utils.Tenant],
-			config.CgrConfig().DefaultTenant),
-		ID:    utils.UUIDSha1Prefix(),
-		Time:  &sTime,
-		Event: kamEv.AsMapStringInterface(),
+			config.CgrConfig().GeneralCfg().DefaultTenant),
+		ID:      utils.UUIDSha1Prefix(),
+		Time:    &sTime,
+		Context: utils.StringPointer("account_profile"),
+		Event:   kamEv.AsMapStringInterface(),
 	}
 	if rcv, err := kamEv.AsCGREvent(timezone); err != nil {
 		t.Error(err)
@@ -167,7 +137,7 @@ func TestKamEvAsCGREvent(t *testing.T) {
 }
 
 func TestKamEvV1AuthorizeArgs(t *testing.T) {
-	timezone := config.CgrConfig().DefaultTimezone
+	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
 	kamEv := KamEvent{"event": "CGR_CALL_END",
 		"callid":   "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0",
 		"from_tag": "bf71ad59", "to_tag": "7351fecf",
@@ -175,7 +145,8 @@ func TestKamEvV1AuthorizeArgs(t *testing.T) {
 		"cgr_destination": "1002", "cgr_answertime": "1419839310",
 		"cgr_duration": "3", "cgr_pdd": "4",
 		utils.CGR_SUPPLIER:         "supplier2",
-		utils.CGR_DISCONNECT_CAUSE: "200"}
+		utils.CGR_DISCONNECT_CAUSE: "200",
+		KamCGRSubsystems:           "*accounts;**suppliers_event_cost;*suppliers_ignore_errors"}
 	sTime, err := utils.ParseTimeDetectLayout(kamEv[utils.AnswerTime], timezone)
 	if err != nil {
 		return
@@ -184,11 +155,14 @@ func TestKamEvV1AuthorizeArgs(t *testing.T) {
 		GetMaxUsage: true,
 		CGREvent: utils.CGREvent{
 			Tenant: utils.FirstNonEmpty(kamEv[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
+				config.CgrConfig().GeneralCfg().DefaultTenant),
 			ID:    utils.UUIDSha1Prefix(),
 			Time:  &sTime,
 			Event: kamEv.AsMapStringInterface(),
 		},
+		GetSuppliers:          true,
+		SuppliersIgnoreErrors: true,
+		SuppliersMaxCost:      utils.MetaEventCost,
 	}
 	rcv := kamEv.V1AuthorizeArgs()
 	if !reflect.DeepEqual(expected.CGREvent.Tenant, rcv.CGREvent.Tenant) {
@@ -205,11 +179,15 @@ func TestKamEvV1AuthorizeArgs(t *testing.T) {
 		t.Errorf("Expecting: %+v, received: %+v", expected.GetSuppliers, rcv.GetSuppliers)
 	} else if !reflect.DeepEqual(expected.GetAttributes, rcv.GetAttributes) {
 		t.Errorf("Expecting: %+v, received: %+v", expected.GetAttributes, rcv.GetAttributes)
+	} else if !reflect.DeepEqual(expected.SuppliersMaxCost, rcv.SuppliersMaxCost) {
+		t.Errorf("Expecting: %+v, received: %+v", expected.SuppliersMaxCost, rcv.SuppliersMaxCost)
+	} else if !reflect.DeepEqual(expected.SuppliersIgnoreErrors, rcv.SuppliersIgnoreErrors) {
+		t.Errorf("Expecting: %+v, received: %+v", expected.SuppliersIgnoreErrors, rcv.SuppliersIgnoreErrors)
 	}
 }
 
 func TestKamEvAsKamAuthReply(t *testing.T) {
-	timezone := config.CgrConfig().DefaultTimezone
+	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
 	kamEv := KamEvent{"event": "CGR_CALL_END",
 		"callid":   "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0",
 		"from_tag": "bf71ad59", "to_tag": "7351fecf",
@@ -226,7 +204,7 @@ func TestKamEvAsKamAuthReply(t *testing.T) {
 		GetMaxUsage: true,
 		CGREvent: utils.CGREvent{
 			Tenant: utils.FirstNonEmpty(kamEv[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
+				config.CgrConfig().GeneralCfg().DefaultTenant),
 			ID:    utils.UUIDSha1Prefix(),
 			Time:  &sTime,
 			Event: kamEv.AsMapStringInterface(),
@@ -244,10 +222,49 @@ func TestKamEvAsKamAuthReply(t *testing.T) {
 	} else if !reflect.DeepEqual(expected, rcv) {
 		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
 	}
+	kamEv = KamEvent{"event": "CGR_PROFILE_REQUEST",
+		"Tenant": "cgrates.org", "Account": "1001",
+		KamReplyRoute: "CGR_PROFILE_REPLY"}
+	authArgs = &sessions.V1AuthorizeArgs{
+		GetAttributes: true,
+		CGREvent: utils.CGREvent{
+			Tenant: utils.FirstNonEmpty(kamEv[utils.Tenant],
+				config.CgrConfig().GeneralCfg().DefaultTenant),
+			ID:    utils.UUIDSha1Prefix(),
+			Time:  &sTime,
+			Event: kamEv.AsMapStringInterface(),
+		},
+	}
+	authRply = &sessions.V1AuthorizeReply{
+		Attributes: &engine.AttrSProcessEventReply{
+			MatchedProfiles: []string{"ATTR_1001_ACCOUNT_PROFILE"},
+			AlteredFields:   []string{"Password", utils.RequestType},
+			CGREvent: &utils.CGREvent{
+				Tenant:  "cgrates.org",
+				ID:      "TestKamEvAsKamAuthReply",
+				Context: utils.StringPointer("account_profile"),
+				Event: map[string]interface{}{
+					utils.Tenant:      "cgrates.org",
+					utils.Account:     "1001",
+					"Password":        "check123",
+					utils.RequestType: utils.META_PREPAID,
+				},
+			},
+		},
+	}
+	expected = &KamAuthReply{
+		Event:      "CGR_PROFILE_REPLY",
+		Attributes: "Password:check123,RequestType:*prepaid",
+	}
+	if rcv, err := kamEv.AsKamAuthReply(authArgs, authRply, nil); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(expected, rcv) {
+		t.Errorf("Expecting: %+v, received: %+v", expected, rcv)
+	}
 }
 
 func TestKamEvV1InitSessionArgs(t *testing.T) {
-	timezone := config.CgrConfig().DefaultTimezone
+	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
 	kamEv := KamEvent{"event": "CGR_CALL_END",
 		"callid":   "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0",
 		"from_tag": "bf71ad59", "to_tag": "7351fecf",
@@ -264,7 +281,7 @@ func TestKamEvV1InitSessionArgs(t *testing.T) {
 		InitSession: true,
 		CGREvent: utils.CGREvent{
 			Tenant: utils.FirstNonEmpty(kamEv[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
+				config.CgrConfig().GeneralCfg().DefaultTenant),
 			ID:    utils.UUIDSha1Prefix(),
 			Time:  &sTime,
 			Event: kamEv.AsMapStringInterface(),
@@ -285,7 +302,7 @@ func TestKamEvV1InitSessionArgs(t *testing.T) {
 }
 
 func TestKamEvV1TerminateSessionArgs(t *testing.T) {
-	timezone := config.CgrConfig().DefaultTimezone
+	timezone := config.CgrConfig().GeneralCfg().DefaultTimezone
 	kamEv := KamEvent{"event": "CGR_CALL_END",
 		"callid":   "46c01a5c249b469e76333fc6bfa87f6a@0:0:0:0:0:0:0:0",
 		"from_tag": "bf71ad59", "to_tag": "7351fecf",
@@ -302,7 +319,7 @@ func TestKamEvV1TerminateSessionArgs(t *testing.T) {
 		TerminateSession: true,
 		CGREvent: utils.CGREvent{
 			Tenant: utils.FirstNonEmpty(kamEv[utils.Tenant],
-				config.CgrConfig().DefaultTenant),
+				config.CgrConfig().GeneralCfg().DefaultTenant),
 			ID:    utils.UUIDSha1Prefix(),
 			Time:  &sTime,
 			Event: kamEv.AsMapStringInterface(),

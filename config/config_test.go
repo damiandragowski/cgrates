@@ -43,8 +43,8 @@ func TestCgrCfgLoadWithDefaults(t *testing.T) {
 "freeswitch_agent": {
 	"enabled": true,				// starts SessionManager service: <true|false>
 	"event_socket_conns":[					// instantiate connections to multiple FreeSWITCH servers
-		{"address": "1.2.3.4:8021", "password": "ClueCon", "reconnects": 3},
-		{"address": "1.2.3.5:8021", "password": "ClueCon", "reconnects": 5}
+		{"address": "1.2.3.4:8021", "password": "ClueCon", "reconnects": 3, "alias":"123"},
+		{"address": "1.2.3.5:8021", "password": "ClueCon", "reconnects": 5, "alias":"124"}
 	],
 },
 
@@ -54,14 +54,132 @@ func TestCgrCfgLoadWithDefaults(t *testing.T) {
 		t.Error(err)
 	}
 	eCgrCfg.fsAgentCfg.Enabled = true
-	eCgrCfg.fsAgentCfg.EventSocketConns = []*FsConnConfig{
-		&FsConnConfig{Address: "1.2.3.4:8021", Password: "ClueCon", Reconnects: 3},
-		&FsConnConfig{Address: "1.2.3.5:8021", Password: "ClueCon", Reconnects: 5},
+	eCgrCfg.fsAgentCfg.EventSocketConns = []*FsConnCfg{
+		{Address: "1.2.3.4:8021", Password: "ClueCon", Reconnects: 3, Alias: "123"},
+		{Address: "1.2.3.5:8021", Password: "ClueCon", Reconnects: 5, Alias: "124"},
 	}
 	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(eCgrCfg.fsAgentCfg, cgrCfg.fsAgentCfg) {
 		t.Errorf("Expected: %+v, received: %+v", eCgrCfg.fsAgentCfg, cgrCfg.fsAgentCfg)
+	}
+}
+
+func TestCgrCfgDataDBPortWithoutDynamic(t *testing.T) {
+	JSN_CFG := `
+{
+"data_db": {
+	"db_type": "mongo",
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.DataDbCfg().DataDbType != utils.MONGO {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbType, utils.MONGO)
+	} else if cgrCfg.DataDbCfg().DataDbPort != "6379" {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbPort, "6379")
+	}
+	JSN_CFG = `
+{
+"data_db": {
+	"db_type": "internal",
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.DataDbCfg().DataDbType != utils.INTERNAL {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbType, utils.INTERNAL)
+	} else if cgrCfg.DataDbCfg().DataDbPort != "6379" {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbPort, "6379")
+	}
+}
+
+func TestCgrCfgDataDBPortWithDymanic(t *testing.T) {
+	JSN_CFG := `
+{
+"data_db": {
+	"db_type": "mongo",
+	"db_port": -1,
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.DataDbCfg().DataDbType != utils.MONGO {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbType, utils.MONGO)
+	} else if cgrCfg.DataDbCfg().DataDbPort != "27017" {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbPort, "27017")
+	}
+	JSN_CFG = `
+{
+"data_db": {
+	"db_type": "internal",
+	"db_port": -1,
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.DataDbCfg().DataDbType != utils.INTERNAL {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbType, utils.INTERNAL)
+	} else if cgrCfg.DataDbCfg().DataDbPort != "internal" {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.DataDbCfg().DataDbPort, "internal")
+	}
+}
+
+func TestCgrCfgStorDBPortWithoutDynamic(t *testing.T) {
+	JSN_CFG := `
+{
+"stor_db": {
+	"db_type": "mongo",
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.StorDbCfg().StorDBType != utils.MONGO {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.StorDbCfg().StorDBType, utils.MONGO)
+	} else if cgrCfg.StorDbCfg().StorDBPort != "3306" {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.StorDbCfg().StorDBPort, "3306")
+	}
+}
+
+func TestCgrCfgStorDBPortWithDymanic(t *testing.T) {
+	JSN_CFG := `
+{
+"stor_db": {
+	"db_type": "mongo",
+	"db_port": -1,
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.StorDbCfg().StorDBType != utils.MONGO {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.StorDbCfg().StorDBType, utils.MONGO)
+	} else if cgrCfg.StorDbCfg().StorDBPort != "27017" {
+		t.Errorf("Expected: %+v, received: %+v", cgrCfg.StorDbCfg().StorDBPort, "27017")
+	}
+}
+
+func TestCgrCfgListener(t *testing.T) {
+	JSN_CFG := `
+{
+"listen": {
+	"rpc_json": ":2012",
+	"rpc_gob": ":2013",
+	"http": ":2080",
+	}
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.ListenCfg().RPCGOBTLSListen != "127.0.0.1:2023" {
+		t.Errorf("Expected: 127.0.0.1:2023 , received: %+v", cgrCfg.ListenCfg().RPCGOBTLSListen)
+	} else if cgrCfg.ListenCfg().RPCJSONTLSListen != "127.0.0.1:2022" {
+		t.Errorf("Expected: 127.0.0.1:2022 , received: %+v", cgrCfg.ListenCfg().RPCJSONTLSListen)
 	}
 }
 
@@ -74,19 +192,19 @@ func TestCgrCfgCDRC(t *testing.T) {
 		"enabled": true,							// enable CDR client functionality
 		"content_fields":[							// import template, tag will match internally CDR field, in case of .csv value will be represented by index of the field value
 			{"field_id": "ToR", "type": "*composed", "value": "~7:s/^(voice|data|sms|mms|generic)$/*$1/"},
-			{"field_id": "AnswerTime", "type": "*composed", "value": "1"},
+			{"field_id": "AnswerTime", "type": "*composed", "value": "~1"},
 			{"field_id": "Usage", "type": "*composed", "value": "~9:s/^(\\d+)$/${1}s/"},
 		],
 	},
 ],
 }`
 	eCgrCfg, _ := NewDefaultCGRConfig()
-	eCgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"] = []*CdrcConfig{
-		&CdrcConfig{
+	eCgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"] = []*CdrcCfg{
+		{
 			ID:                       utils.META_DEFAULT,
 			Enabled:                  true,
 			DryRun:                   false,
-			CdrsConns:                []*HaPoolConfig{&HaPoolConfig{Address: utils.MetaInternal}},
+			CdrsConns:                []*HaPoolConfig{{Address: utils.MetaInternal}},
 			CdrFormat:                "csv",
 			FieldSeparator:           rune(','),
 			DataUsageMultiplyFactor:  1024,
@@ -98,57 +216,98 @@ func TestCgrCfgCDRC(t *testing.T) {
 			FailedCallsPrefix:        "missed_calls",
 			CDRPath:                  utils.HierarchyPath([]string{""}),
 			CdrSourceId:              "freeswitch_csv",
+			Filters:                  []string{},
+			Tenant:                   NewRSRParsersMustCompile("cgrates.org", true),
 			ContinueOnSuccess:        false,
 			PartialRecordCache:       time.Duration(10 * time.Second),
 			PartialCacheExpiryAction: "*dump_to_file",
-			HeaderFields:             make([]*CfgCdrField, 0),
-			ContentFields: []*CfgCdrField{
-				&CfgCdrField{FieldId: "ToR", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile("~7:s/^(voice|data|sms|mms|generic)$/*$1/", utils.INFIELD_SEP)},
-				&CfgCdrField{FieldId: "AnswerTime", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile("1", utils.INFIELD_SEP)},
-				&CfgCdrField{FieldId: "Usage", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile("~9:s/^(\\d+)$/${1}s/", utils.INFIELD_SEP)},
+			HeaderFields:             make([]*FCTemplate, 0),
+			ContentFields: []*FCTemplate{
+				{FieldId: "ToR", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~7:s/^(voice|data|sms|mms|generic)$/*$1/", true)},
+				{FieldId: "AnswerTime", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~1", true)},
+				{FieldId: "Usage", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~9:s/^(\\d+)$/${1}s/", true)},
 			},
-			TrailerFields: make([]*CfgCdrField, 0),
-			CacheDumpFields: []*CfgCdrField{
-				&CfgCdrField{Tag: "CGRID", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.CGRID, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "RunID", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.MEDI_RUNID, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "TOR", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.TOR, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "OriginID", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.OriginID, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "RequestType", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.RequestType, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "Tenant", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.Tenant, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "Category", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.Category, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "Account", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.Account, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "Subject", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.Subject, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "Destination", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.Destination, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "SetupTime", Type: utils.META_COMPOSED,
-					Value:  utils.ParseRSRFieldsMustCompile(utils.SetupTime, utils.INFIELD_SEP),
+			TrailerFields: make([]*FCTemplate, 0),
+			CacheDumpFields: []*FCTemplate{
+				{Tag: "CGRID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.CGRID, true)},
+				{Tag: "RunID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.RunID, true)},
+				{Tag: "TOR", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.ToR, true)},
+				{Tag: "OriginID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.OriginID, true)},
+				{Tag: "RequestType", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.RequestType, true)},
+				{Tag: "Tenant", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Tenant, true)},
+				{Tag: "Category", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Category, true)},
+				{Tag: "Account", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Account, true)},
+				{Tag: "Subject", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Subject, true)},
+				{Tag: "Destination", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Destination, true)},
+				{Tag: "SetupTime", Type: utils.META_COMPOSED,
+					Value:  NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.SetupTime, true),
 					Layout: "2006-01-02T15:04:05Z07:00"},
-				&CfgCdrField{Tag: "AnswerTime", Type: utils.META_COMPOSED,
-					Value:  utils.ParseRSRFieldsMustCompile(utils.AnswerTime, utils.INFIELD_SEP),
+				{Tag: "AnswerTime", Type: utils.META_COMPOSED,
+					Value:  NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.AnswerTime, true),
 					Layout: "2006-01-02T15:04:05Z07:00"},
-				&CfgCdrField{Tag: "Usage", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.Usage, utils.INFIELD_SEP)},
-				&CfgCdrField{Tag: "Cost", Type: utils.META_COMPOSED,
-					Value: utils.ParseRSRFieldsMustCompile(utils.COST, utils.INFIELD_SEP)},
+				{Tag: "Usage", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Usage, true)},
+				{Tag: "Cost", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.COST, true)},
 			},
 		},
 	}
 	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_RAW_CFG); err != nil {
 		t.Error(err)
 	} else if !reflect.DeepEqual(eCgrCfg.CdrcProfiles, cgrCfg.CdrcProfiles) {
-		t.Errorf("Expected: %+v, received: %+v", eCgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"][0], cgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"][0])
+		t.Errorf("Expected: %+v,\n received: %+v",
+			utils.ToJSON(eCgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"][0]),
+			utils.ToJSON(cgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"][0]))
+	}
+}
+
+func TestHttpAgentCfg(t *testing.T) {
+	JSN_RAW_CFG := `
+{
+"http_agent": [
+	{
+		"id": "conecto1",
+		"url": "/conecto",					// relative URL for requests coming in
+		"sessions_conns": [
+			{"address": "*internal"}		// connection towards SessionService
+		],
+		"request_payload":	"*url",			// source of input data <*url>
+		"reply_payload":	"*xml",			// type of output data <*xml>
+		"request_processors": [],
+	}
+],
+}
+	`
+	eCgrCfg, _ := NewDefaultCGRConfig()
+	eCgrCfg.httpAgentCfg = []*HttpAgentCfg{
+		{
+			ID:             "conecto1",
+			Url:            "/conecto",
+			RequestPayload: utils.MetaUrl,
+			ReplyPayload:   utils.MetaXml,
+			SessionSConns: []*HaPoolConfig{
+				{Address: utils.MetaInternal}},
+			RequestProcessors: nil,
+		},
+	}
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_RAW_CFG); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eCgrCfg.HttpAgentCfg(), cgrCfg.HttpAgentCfg()) {
+		t.Errorf("Expected: %s, received: %s",
+			utils.ToJSON(eCgrCfg.httpAgentCfg), utils.ToJSON(cgrCfg.httpAgentCfg))
 	}
 }
 
@@ -160,163 +319,169 @@ func TestCgrCfgLoadJSONDefaults(t *testing.T) {
 }
 
 func TestCgrCfgJSONDefaultsGeneral(t *testing.T) {
-	if cgrCfg.HttpSkipTlsVerify != false {
-		t.Error(cgrCfg.HttpSkipTlsVerify)
+	if cgrCfg.GeneralCfg().HttpSkipTlsVerify != false {
+		t.Errorf("Expected: false, received: %+v", cgrCfg.GeneralCfg().HttpSkipTlsVerify)
 	}
-	if cgrCfg.RoundingDecimals != 5 {
-		t.Error(cgrCfg.RoundingDecimals)
+	if cgrCfg.GeneralCfg().RoundingDecimals != 5 {
+		t.Errorf("Expected: 5, received: %+v", cgrCfg.GeneralCfg().RoundingDecimals)
 	}
-	if cgrCfg.DBDataEncoding != "msgpack" {
-		t.Error(cgrCfg.DBDataEncoding)
+	if cgrCfg.GeneralCfg().DBDataEncoding != "msgpack" {
+		t.Errorf("Expected: msgpack, received: %+v", cgrCfg.GeneralCfg().DBDataEncoding)
 	}
-	if cgrCfg.TpExportPath != "/var/spool/cgrates/tpe" {
-		t.Error(cgrCfg.TpExportPath)
+	if expected := "/var/spool/cgrates/tpe"; cgrCfg.GeneralCfg().TpExportPath != expected {
+		t.Errorf("Expected: %+v, received: %+v", expected, cgrCfg.GeneralCfg().TpExportPath)
 	}
-	if cgrCfg.PosterAttempts != 3 {
-		t.Error(cgrCfg.PosterAttempts)
+	if cgrCfg.GeneralCfg().PosterAttempts != 3 {
+		t.Errorf("Expected: 3, received: %+v", cgrCfg.GeneralCfg().PosterAttempts)
 	}
-	if cgrCfg.FailedPostsDir != "/var/spool/cgrates/failed_posts" {
-		t.Error(cgrCfg.FailedPostsDir)
+	if expected := "/var/spool/cgrates/failed_posts"; cgrCfg.GeneralCfg().FailedPostsDir != expected {
+		t.Errorf("Expected: %+v, received: %+v", expected, cgrCfg.GeneralCfg().FailedPostsDir)
 	}
-	if cgrCfg.DefaultReqType != "*rated" {
-		t.Error(cgrCfg.DefaultReqType)
+	if cgrCfg.GeneralCfg().DefaultReqType != "*rated" {
+		t.Errorf("Expected: *rated, received: %+v", cgrCfg.GeneralCfg().DefaultReqType)
 	}
-	if cgrCfg.DefaultCategory != "call" {
-		t.Error(cgrCfg.DefaultCategory)
+	if cgrCfg.GeneralCfg().DefaultCategory != "call" {
+		t.Errorf("Expected: call, received: %+v", cgrCfg.GeneralCfg().DefaultCategory)
 	}
-	if cgrCfg.DefaultTenant != "cgrates.org" {
-		t.Error(cgrCfg.DefaultTenant)
+	if cgrCfg.GeneralCfg().DefaultTenant != "cgrates.org" {
+		t.Errorf("Expected: cgrates.org, received: %+v", cgrCfg.GeneralCfg().DefaultTenant)
 	}
-	if cgrCfg.DefaultTimezone != "Local" {
-		t.Error(cgrCfg.DefaultTimezone)
+	if cgrCfg.GeneralCfg().DefaultTimezone != "Local" {
+		t.Errorf("Expected: Local, received: %+v", cgrCfg.GeneralCfg().DefaultTimezone)
 	}
-	if cgrCfg.ConnectAttempts != 3 {
-		t.Error(cgrCfg.ConnectAttempts)
+	if cgrCfg.GeneralCfg().ConnectAttempts != 3 {
+		t.Errorf("Expected: 3, received: %+v", cgrCfg.GeneralCfg().ConnectAttempts)
 	}
-	if cgrCfg.Reconnects != -1 {
-		t.Error(cgrCfg.Reconnects)
+	if cgrCfg.GeneralCfg().Reconnects != -1 {
+		t.Errorf("Expected: -1, received: %+v", cgrCfg.GeneralCfg().Reconnects)
 	}
-	if cgrCfg.ConnectTimeout != 1*time.Second {
-		t.Error(cgrCfg.ConnectTimeout)
+	if cgrCfg.GeneralCfg().ConnectTimeout != 1*time.Second {
+		t.Errorf("Expected: 1s, received: %+v", cgrCfg.GeneralCfg().ConnectTimeout)
 	}
-	if cgrCfg.ReplyTimeout != 2*time.Second {
-		t.Error(cgrCfg.ReplyTimeout)
+	if cgrCfg.GeneralCfg().ReplyTimeout != 2*time.Second {
+		t.Errorf("Expected: 2s, received: %+v", cgrCfg.GeneralCfg().ReplyTimeout)
 	}
-	if cgrCfg.ResponseCacheTTL != 0*time.Second {
-		t.Error(cgrCfg.ResponseCacheTTL)
+	if cgrCfg.GeneralCfg().ResponseCacheTTL != 0*time.Second {
+		t.Errorf("Expected: 0s, received: %+v", cgrCfg.GeneralCfg().ResponseCacheTTL)
 	}
-	if cgrCfg.InternalTtl != 2*time.Minute {
-		t.Error(cgrCfg.InternalTtl)
+	if cgrCfg.GeneralCfg().InternalTtl != 2*time.Minute {
+		t.Errorf("Expected: 2m, received: %+v", cgrCfg.GeneralCfg().InternalTtl)
 	}
-	if cgrCfg.LockingTimeout != 5*time.Second {
-		t.Error(cgrCfg.LockingTimeout)
+	if cgrCfg.GeneralCfg().LockingTimeout != 0 {
+		t.Errorf("Expected: 0, received: %+v", cgrCfg.GeneralCfg().LockingTimeout)
 	}
-	if cgrCfg.Logger != utils.MetaSysLog {
-		t.Error(cgrCfg.Logger)
+	if cgrCfg.GeneralCfg().Logger != utils.MetaSysLog {
+		t.Errorf("Expected: %+v, received: %+v", utils.MetaSysLog, cgrCfg.GeneralCfg().Logger)
 	}
-	if cgrCfg.LogLevel != 6 {
-		t.Error(cgrCfg.LogLevel)
+	if cgrCfg.GeneralCfg().LogLevel != 6 {
+		t.Errorf("Expected: 6, received: %+v", cgrCfg.GeneralCfg().LogLevel)
+	}
+	if cgrCfg.GeneralCfg().DigestSeparator != "," {
+		t.Errorf("Expected: ',' , received: %+v", cgrCfg.GeneralCfg().DigestSeparator)
+	}
+	if cgrCfg.GeneralCfg().DigestEqual != ":" {
+		t.Errorf("Expected: ':' , received: %+v", cgrCfg.GeneralCfg().DigestEqual)
 	}
 }
 
 func TestCgrCfgJSONDefaultsListen(t *testing.T) {
-	if cgrCfg.RPCJSONListen != "127.0.0.1:2012" {
-		t.Error(cgrCfg.RPCJSONListen)
+	if cgrCfg.ListenCfg().RPCJSONListen != "127.0.0.1:2012" {
+		t.Errorf("Expected: 127.0.0.1:2012 , received: %+v", cgrCfg.ListenCfg().RPCJSONListen)
 	}
-	if cgrCfg.RPCGOBListen != "127.0.0.1:2013" {
-		t.Error(cgrCfg.RPCGOBListen)
+	if cgrCfg.ListenCfg().RPCGOBListen != "127.0.0.1:2013" {
+		t.Errorf("Expected: 127.0.0.1:2013 , received: %+v", cgrCfg.ListenCfg().RPCGOBListen)
 	}
-	if cgrCfg.HTTPListen != "127.0.0.1:2080" {
-		t.Error(cgrCfg.HTTPListen)
+	if cgrCfg.ListenCfg().HTTPListen != "127.0.0.1:2080" {
+		t.Errorf("Expected: 127.0.0.1:2080 , received: %+v", cgrCfg.ListenCfg().HTTPListen)
+	}
+	if cgrCfg.ListenCfg().RPCJSONTLSListen != "127.0.0.1:2022" {
+		t.Errorf("Expected: 127.0.0.1:2022 , received: %+v", cgrCfg.ListenCfg().RPCJSONListen)
+	}
+	if cgrCfg.ListenCfg().RPCGOBTLSListen != "127.0.0.1:2023" {
+		t.Errorf("Expected: 127.0.0.1:2023 , received: %+v", cgrCfg.ListenCfg().RPCGOBListen)
+	}
+	if cgrCfg.ListenCfg().HTTPTLSListen != "127.0.0.1:2280" {
+		t.Errorf("Expected: 127.0.0.1:2280 , received: %+v", cgrCfg.ListenCfg().HTTPListen)
 	}
 }
 
 func TestCgrCfgJSONDefaultsjsnDataDb(t *testing.T) {
-	if cgrCfg.DataDbType != "redis" {
-		t.Error(cgrCfg.DataDbType)
+	if cgrCfg.DataDbCfg().DataDbType != "redis" {
+		t.Errorf("Expecting: redis , recived: %+v", cgrCfg.DataDbCfg().DataDbType)
 	}
-	if cgrCfg.DataDbHost != "127.0.0.1" {
-		t.Error(cgrCfg.DataDbHost)
+	if cgrCfg.DataDbCfg().DataDbHost != "127.0.0.1" {
+		t.Errorf("Expecting: 127.0.0.1 , recived: %+v", cgrCfg.DataDbCfg().DataDbHost)
 	}
-	if cgrCfg.DataDbPort != "6379" {
-		t.Error(cgrCfg.DataDbPort)
+	if cgrCfg.DataDbCfg().DataDbPort != "6379" {
+		t.Errorf("Expecting: 6379 , recived: %+v", cgrCfg.DataDbCfg().DataDbPort)
 	}
-	if cgrCfg.DataDbName != "10" {
-		t.Error(cgrCfg.DataDbName)
+	if cgrCfg.DataDbCfg().DataDbName != "10" {
+		t.Errorf("Expecting: 10 , recived: %+v", cgrCfg.DataDbCfg().DataDbName)
 	}
-	if cgrCfg.DataDbUser != "cgrates" {
-		t.Error(cgrCfg.DataDbUser)
+	if cgrCfg.DataDbCfg().DataDbUser != "cgrates" {
+		t.Errorf("Expecting: cgrates , recived: %+v", cgrCfg.DataDbCfg().DataDbUser)
 	}
-	if cgrCfg.DataDbPass != "" {
-		t.Error(cgrCfg.DataDbPass)
-	}
-	if cgrCfg.LoadHistorySize != 10 {
-		t.Error(cgrCfg.LoadHistorySize)
+	if cgrCfg.DataDbCfg().DataDbPass != "" {
+		t.Errorf("Expecting:  , recived: %+v", cgrCfg.DataDbCfg().DataDbPass)
 	}
 }
 
 func TestCgrCfgJSONDefaultsStorDB(t *testing.T) {
-	if cgrCfg.StorDBType != "mysql" {
-		t.Error(cgrCfg.StorDBType)
+	if cgrCfg.StorDbCfg().StorDBType != "mysql" {
+		t.Errorf("Expecting: mysql , recived: %+v", cgrCfg.StorDbCfg().StorDBType)
 	}
-	if cgrCfg.StorDBHost != "127.0.0.1" {
-		t.Error(cgrCfg.StorDBHost)
+	if cgrCfg.StorDbCfg().StorDBHost != "127.0.0.1" {
+		t.Errorf("Expecting: 127.0.0.1 , recived: %+v", cgrCfg.StorDbCfg().StorDBHost)
 	}
-	if cgrCfg.StorDBPort != "3306" {
-		t.Error(cgrCfg.StorDBPort)
+	if cgrCfg.StorDbCfg().StorDBPort != "3306" {
+		t.Errorf("Expecting: 3306 , recived: %+v", cgrCfg.StorDbCfg().StorDBPort)
 	}
-	if cgrCfg.StorDBName != "cgrates" {
-		t.Error(cgrCfg.StorDBName)
+	if cgrCfg.StorDbCfg().StorDBName != "cgrates" {
+		t.Errorf("Expecting: cgrates , recived: %+v", cgrCfg.StorDbCfg().StorDBName)
 	}
-	if cgrCfg.StorDBUser != "cgrates" {
-		t.Error(cgrCfg.StorDBUser)
+	if cgrCfg.StorDbCfg().StorDBUser != "cgrates" {
+		t.Errorf("Expecting: cgrates , recived: %+v", cgrCfg.StorDbCfg().StorDBUser)
 	}
-	if cgrCfg.StorDBPass != "" {
-		t.Error(cgrCfg.StorDBPass)
+	if cgrCfg.StorDbCfg().StorDBPass != "" {
+		t.Errorf("Expecting: , recived: %+v", cgrCfg.StorDbCfg().StorDBPass)
 	}
-	if cgrCfg.StorDBMaxOpenConns != 100 {
-		t.Error(cgrCfg.StorDBMaxOpenConns)
+	if cgrCfg.StorDbCfg().StorDBMaxOpenConns != 100 {
+		t.Errorf("Expecting: 100 , recived: %+v", cgrCfg.StorDbCfg().StorDBMaxOpenConns)
 	}
-	if cgrCfg.StorDBMaxIdleConns != 10 {
-		t.Error(cgrCfg.StorDBMaxIdleConns)
+	if cgrCfg.StorDbCfg().StorDBMaxIdleConns != 10 {
+		t.Errorf("Expecting: 10 , recived: %+v", cgrCfg.StorDbCfg().StorDBMaxIdleConns)
 	}
-	Eslice := []string{}
-	if !reflect.DeepEqual(cgrCfg.StorDBCDRSIndexes, Eslice) {
-		t.Error(cgrCfg.StorDBCDRSIndexes)
+	if !reflect.DeepEqual(cgrCfg.StorDbCfg().StorDBCDRSIndexes, []string{}) {
+		t.Errorf("Expecting: %+v , recived: %+v", []string{}, cgrCfg.StorDbCfg().StorDBCDRSIndexes)
 	}
 }
 
 func TestCgrCfgJSONDefaultsRALs(t *testing.T) {
-	//asd
 	eHaPoolcfg := []*HaPoolConfig{}
 
-	if cgrCfg.RALsEnabled != false {
-		t.Error(cgrCfg.RALsEnabled)
+	if cgrCfg.RalsCfg().RALsEnabled != false {
+		t.Errorf("Expecting: false , received: %+v", cgrCfg.RalsCfg().RALsEnabled)
 	}
-
-	if !reflect.DeepEqual(cgrCfg.RALsThresholdSConns, eHaPoolcfg) {
-		t.Error(cgrCfg.RALsThresholdSConns)
+	if !reflect.DeepEqual(cgrCfg.RalsCfg().RALsThresholdSConns, eHaPoolcfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolcfg, cgrCfg.RalsCfg().RALsThresholdSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.RALsCDRStatSConns, eHaPoolcfg) {
-		t.Error(cgrCfg.RALsCDRStatSConns)
+	if !reflect.DeepEqual(cgrCfg.RalsCfg().RALsCDRStatSConns, eHaPoolcfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolcfg, cgrCfg.RalsCfg().RALsCDRStatSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.RALsPubSubSConns, eHaPoolcfg) {
-		t.Error(cgrCfg.RALsPubSubSConns)
+	if !reflect.DeepEqual(cgrCfg.RalsCfg().RALsPubSubSConns, eHaPoolcfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolcfg, cgrCfg.RalsCfg().RALsPubSubSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.RALsAttributeSConns, eHaPoolcfg) {
-		t.Error(cgrCfg.RALsAttributeSConns)
+	if !reflect.DeepEqual(cgrCfg.RalsCfg().RALsUserSConns, eHaPoolcfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolcfg, cgrCfg.RalsCfg().RALsUserSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.RALsUserSConns, eHaPoolcfg) {
-		t.Error(cgrCfg.RALsUserSConns)
+	if !reflect.DeepEqual(cgrCfg.RalsCfg().RALsAliasSConns, eHaPoolcfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolcfg, cgrCfg.RalsCfg().RALsAliasSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.RALsAliasSConns, eHaPoolcfg) {
-		t.Error(cgrCfg.RALsAliasSConns)
+	if cgrCfg.RalsCfg().RpSubjectPrefixMatching != false {
+		t.Errorf("Expecting: false , received: %+v", cgrCfg.RalsCfg().RpSubjectPrefixMatching)
 	}
-	if cgrCfg.RpSubjectPrefixMatching != false {
-		t.Error(cgrCfg.RpSubjectPrefixMatching)
-	}
-	if cgrCfg.LcrSubjectPrefixMatching != false {
-		t.Error(cgrCfg.LcrSubjectPrefixMatching)
+	if cgrCfg.RalsCfg().LcrSubjectPrefixMatching != false {
+		t.Errorf("Expecting: false , received: %+v", cgrCfg.RalsCfg().LcrSubjectPrefixMatching)
 	}
 	eMaxCU := map[string]time.Duration{
 		utils.ANY:   time.Duration(189 * time.Hour),
@@ -324,112 +489,149 @@ func TestCgrCfgJSONDefaultsRALs(t *testing.T) {
 		utils.DATA:  time.Duration(107374182400),
 		utils.SMS:   time.Duration(10000),
 	}
-	if !reflect.DeepEqual(eMaxCU, cgrCfg.RALsMaxComputedUsage) {
-		t.Errorf("Expecting: %+v, received: %+v", eMaxCU, cgrCfg.RALsMaxComputedUsage)
+	if !reflect.DeepEqual(eMaxCU, cgrCfg.RalsCfg().RALsMaxComputedUsage) {
+		t.Errorf("Expecting: %+v , received: %+v", eMaxCU, cgrCfg.RalsCfg().RALsMaxComputedUsage)
 	}
 }
 
 func TestCgrCfgJSONDefaultsScheduler(t *testing.T) {
-	if cgrCfg.SchedulerEnabled != false {
-		t.Error(cgrCfg.SchedulerEnabled)
+	eSchedulerCfg := &SchedulerCfg{
+		Enabled:   false,
+		CDRsConns: []*HaPoolConfig{},
+	}
+
+	if !reflect.DeepEqual(cgrCfg.schedulerCfg, eSchedulerCfg) {
+		t.Errorf("received: %+v, expecting: %+v", cgrCfg.schedulerCfg, eSchedulerCfg)
 	}
 }
 
 func TestCgrCfgJSONDefaultsCDRS(t *testing.T) {
 	eHaPoolCfg := []*HaPoolConfig{}
 	var eCdrExtr []*utils.RSRField
-	if cgrCfg.CDRSEnabled != false {
-		t.Error(cgrCfg.CDRSEnabled)
+	if cgrCfg.CdrsCfg().CDRSEnabled != false {
+		t.Errorf("Expecting: false , received: %+v", cgrCfg.CdrsCfg().CDRSEnabled)
 	}
-	if !reflect.DeepEqual(eCdrExtr, cgrCfg.CDRSExtraFields) {
-		t.Errorf(" expecting: %+v, received: %+v", eCdrExtr, cgrCfg.CDRSExtraFields)
+	if !reflect.DeepEqual(eCdrExtr, cgrCfg.CdrsCfg().CDRSExtraFields) {
+		t.Errorf("Expecting: %+v , received: %+v", eCdrExtr, cgrCfg.CdrsCfg().CDRSExtraFields)
 	}
-	if cgrCfg.CDRSStoreCdrs != true {
-		t.Error(cgrCfg.CDRSStoreCdrs)
+	if cgrCfg.CdrsCfg().CDRSStoreCdrs != true {
+		t.Errorf("Expecting: true , received: %+v", cgrCfg.CdrsCfg().CDRSStoreCdrs)
 	}
-	if cgrCfg.CDRScdrAccountSummary != false {
-		t.Error(cgrCfg.CDRScdrAccountSummary)
+	if cgrCfg.CdrsCfg().CDRSSMCostRetries != 5 {
+		t.Errorf("Expecting: 5 , received: %+v", cgrCfg.CdrsCfg().CDRSSMCostRetries)
 	}
-	if cgrCfg.CDRSSMCostRetries != 5 {
-		t.Error(cgrCfg.CDRSSMCostRetries)
+	if expected := []*HaPoolConfig{{Address: utils.MetaInternal}}; !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSRaterConns, expected) {
+		t.Errorf("Expecting: %+v , received: %+v", expected, cgrCfg.CdrsCfg().CDRSRaterConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSRaterConns, []*HaPoolConfig{&HaPoolConfig{Address: "*internal"}}) {
-		t.Error(cgrCfg.CDRSRaterConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSChargerSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSChargerSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSPubSubSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSPubSubSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSPubSubSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSPubSubSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSAttributeSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSAttributeSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSAttributeSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSAttributeSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSUserSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSUserSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSUserSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSUserSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSAliaseSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSAliaseSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSAliaseSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSAliaseSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSCDRStatSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSCDRStatSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSCDRStatSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSCDRStatSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSThresholdSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSThresholdSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSThresholdSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSThresholdSConns)
 	}
-	if !reflect.DeepEqual(cgrCfg.CDRSStatSConns, eHaPoolCfg) {
-		t.Error(cgrCfg.CDRSStatSConns)
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSStatSConns, eHaPoolCfg) {
+		t.Errorf("Expecting: %+v , received: %+v", eHaPoolCfg, cgrCfg.CdrsCfg().CDRSStatSConns)
 	}
-	if cgrCfg.CDRSOnlineCDRExports != nil {
-		t.Error(cgrCfg.CDRSOnlineCDRExports)
+	if cgrCfg.CdrsCfg().CDRSOnlineCDRExports != nil {
+		t.Errorf("Expecting: nil , received: %+v", cgrCfg.CdrsCfg().CDRSOnlineCDRExports)
+	}
+}
+
+func TestCgrCfgJSONLoadCDRS(t *testing.T) {
+	JSN_RAW_CFG := `
+{
+"cdrs": {
+	"enabled": true,
+	"chargers_conns": [
+		{"address": "*internal"}
+	],
+	"rals_conns": [
+		{"address": "*internal"}			// address where to reach the Rater for cost calculation, empty to disable functionality: <""|*internal|x.y.z.y:1234>
+	],
+},
+}
+	`
+	cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_RAW_CFG)
+	if err != nil {
+		t.Error(err)
+	}
+	if !cgrCfg.CdrsCfg().CDRSEnabled {
+		t.Errorf("Expecting: true , received: %+v", cgrCfg.CdrsCfg().CDRSEnabled)
+	}
+	expected := []*HaPoolConfig{{Address: utils.MetaInternal}}
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSChargerSConns, expected) {
+		t.Errorf("Expecting: %+v , received: %+v", expected, cgrCfg.CdrsCfg().CDRSChargerSConns)
+	}
+	if !reflect.DeepEqual(cgrCfg.CdrsCfg().CDRSRaterConns, expected) {
+		t.Errorf("Expecting: %+v , received: %+v", expected, cgrCfg.CdrsCfg().CDRSRaterConns)
 	}
 }
 
 func TestCgrCfgJSONDefaultsCDRStats(t *testing.T) {
-	if cgrCfg.CDRStatsEnabled != false {
-		t.Error(cgrCfg.CDRStatsEnabled)
+	if cgrCfg.CdrStatsCfg().CDRStatsEnabled != false {
+		t.Error(cgrCfg.CdrStatsCfg().CDRStatsEnabled)
 	}
-	if cgrCfg.CDRStatsSaveInterval != 1*time.Minute {
-		t.Error(cgrCfg.CDRStatsSaveInterval)
+	if cgrCfg.CdrStatsCfg().CDRStatsSaveInterval != 1*time.Minute {
+		t.Error(cgrCfg.CdrStatsCfg().CDRStatsSaveInterval)
 	}
 }
 
 func TestCgrCfgJSONDefaultsCdreProfiles(t *testing.T) {
-	eFields := []*CfgCdrField{}
-	eContentFlds := []*CfgCdrField{
-		&CfgCdrField{Tag: "CGRID", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("CGRID", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "RunID", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("RunID", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "TOR", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("ToR", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "OriginID", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("OriginID", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "RequestType", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("RequestType", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "Tenant", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("Tenant", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "Category", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("Category", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "Account", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("Account", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "Subject", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("Subject", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "Destination", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("Destination", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "SetupTime", Type: "*composed",
-			Value:  utils.ParseRSRFieldsMustCompile("SetupTime", utils.INFIELD_SEP),
+	eFields := []*FCTemplate{}
+	eContentFlds := []*FCTemplate{
+		{Tag: "CGRID", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~CGRID", true)},
+		{Tag: "RunID", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~RunID", true)},
+		{Tag: "TOR", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~ToR", true)},
+		{Tag: "OriginID", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~OriginID", true)},
+		{Tag: "RequestType", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~RequestType", true)},
+		{Tag: "Tenant", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~Tenant", true)},
+		{Tag: "Category", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~Category", true)},
+		{Tag: "Account", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~Account", true)},
+		{Tag: "Subject", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~Subject", true)},
+		{Tag: "Destination", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~Destination", true)},
+		{Tag: "SetupTime", Type: "*composed",
+			Value:  NewRSRParsersMustCompile("~SetupTime", true),
 			Layout: "2006-01-02T15:04:05Z07:00"},
-		&CfgCdrField{Tag: "AnswerTime", Type: "*composed",
-			Value:  utils.ParseRSRFieldsMustCompile("AnswerTime", utils.INFIELD_SEP),
+		{Tag: "AnswerTime", Type: "*composed",
+			Value:  NewRSRParsersMustCompile("~AnswerTime", true),
 			Layout: "2006-01-02T15:04:05Z07:00"},
-		&CfgCdrField{Tag: "Usage", Type: "*composed",
-			Value: utils.ParseRSRFieldsMustCompile("Usage", utils.INFIELD_SEP)},
-		&CfgCdrField{Tag: "Cost", Type: "*composed",
-			Value:            utils.ParseRSRFieldsMustCompile("Cost", utils.INFIELD_SEP),
+		{Tag: "Usage", Type: "*composed",
+			Value: NewRSRParsersMustCompile("~Usage", true)},
+		{Tag: "Cost", Type: "*composed",
+			Value:            NewRSRParsersMustCompile("~Cost", true),
 			RoundingDecimals: 4},
 	}
-	eCdreCfg := map[string]*CdreConfig{
+	eCdreCfg := map[string]*CdreCfg{
 		"*default": {
 			ExportFormat:        utils.MetaFileCSV,
 			ExportPath:          "/var/spool/cgrates/cdre",
+			Filters:             []string{},
+			Tenant:              "cgrates.org",
 			Synchronous:         false,
 			Attempts:            1,
 			FieldSeparator:      ',',
@@ -447,12 +649,13 @@ func TestCgrCfgJSONDefaultsCdreProfiles(t *testing.T) {
 
 func TestCgrCfgJSONDefaultsSMGenericCfg(t *testing.T) {
 	eSessionSCfg := &SessionSCfg{
-		Enabled:      false,
-		ListenBijson: "127.0.0.1:2014",
+		Enabled:       false,
+		ListenBijson:  "127.0.0.1:2014",
+		ChargerSConns: []*HaPoolConfig{},
 		RALsConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"}},
+			{Address: "*internal"}},
 		CDRsConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"}},
+			{Address: "*internal"}},
 		ResSConns:               []*HaPoolConfig{},
 		ThreshSConns:            []*HaPoolConfig{},
 		StatSConns:              []*HaPoolConfig{},
@@ -465,6 +668,7 @@ func TestCgrCfgJSONDefaultsSMGenericCfg(t *testing.T) {
 		SessionTTL:              0 * time.Second,
 		SessionIndexes:          utils.StringMap{},
 		ClientProtocol:          1.0,
+		ChannelSyncInterval:     0,
 	}
 	if !reflect.DeepEqual(eSessionSCfg, cgrCfg.sessionSCfg) {
 		t.Errorf("expecting: %s, received: %s",
@@ -473,76 +677,70 @@ func TestCgrCfgJSONDefaultsSMGenericCfg(t *testing.T) {
 
 }
 func TestCgrCfgJSONDefaultsCacheCFG(t *testing.T) {
-	eCacheCfg := CacheConfig{
-		utils.CacheDestinations: &CacheParamConfig{Limit: -1,
+	eCacheCfg := CacheCfg{
+		utils.CacheDestinations: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheReverseDestinations: &CacheParamConfig{Limit: -1,
+		utils.CacheReverseDestinations: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheRatingPlans: &CacheParamConfig{Limit: -1,
+		utils.CacheRatingPlans: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheRatingProfiles: &CacheParamConfig{Limit: -1,
+		utils.CacheRatingProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheLCRRules: &CacheParamConfig{Limit: -1,
+		utils.CacheLCRRules: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheCDRStatS: &CacheParamConfig{Limit: -1,
+		utils.CacheCDRStatS: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheActions: &CacheParamConfig{Limit: -1,
+		utils.CacheActions: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheActionPlans: &CacheParamConfig{Limit: -1,
+		utils.CacheActionPlans: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheAccountActionPlans: &CacheParamConfig{Limit: -1,
+		utils.CacheAccountActionPlans: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheActionTriggers: &CacheParamConfig{Limit: -1,
+		utils.CacheActionTriggers: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheSharedGroups: &CacheParamConfig{Limit: -1,
+		utils.CacheSharedGroups: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheAliases: &CacheParamConfig{Limit: -1,
+		utils.CacheAliases: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheReverseAliases: &CacheParamConfig{Limit: -1,
+		utils.CacheReverseAliases: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheDerivedChargers: &CacheParamConfig{Limit: -1,
+		utils.CacheDerivedChargers: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheTimings: &CacheParamConfig{Limit: -1,
+		utils.CacheTimings: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheResourceProfiles: &CacheParamConfig{Limit: -1,
+		utils.CacheResourceProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheResources: &CacheParamConfig{Limit: -1,
+		utils.CacheResources: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheEventResources: &CacheParamConfig{Limit: -1,
+		utils.CacheEventResources: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(1 * time.Minute), StaticTTL: false},
-		utils.CacheStatQueueProfiles: &CacheParamConfig{Limit: -1,
+		utils.CacheStatQueueProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(1 * time.Minute), StaticTTL: false, Precache: false},
-		utils.CacheStatQueues: &CacheParamConfig{Limit: -1,
+		utils.CacheStatQueues: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(1 * time.Minute), StaticTTL: false, Precache: false},
-		utils.CacheThresholdProfiles: &CacheParamConfig{Limit: -1,
+		utils.CacheThresholdProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheThresholds: &CacheParamConfig{Limit: -1,
+		utils.CacheThresholds: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheFilters: &CacheParamConfig{Limit: -1,
+		utils.CacheFilters: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheSupplierProfiles: &CacheParamConfig{Limit: -1,
+		utils.CacheSupplierProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheAttributeProfiles: &CacheParamConfig{Limit: -1,
+		utils.CacheAttributeProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheResourceFilterIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheChargerProfiles: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheResourceFilterRevIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheResourceFilterIndexes: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheStatFilterIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheStatFilterIndexes: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheStatFilterRevIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheThresholdFilterIndexes: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheThresholdFilterIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheSupplierFilterIndexes: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheThresholdFilterRevIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheAttributeFilterIndexes: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheSupplierFilterIndexes: &CacheParamConfig{Limit: -1,
-			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheSupplierFilterRevIndexes: &CacheParamConfig{Limit: -1,
-			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheAttributeFilterIndexes: &CacheParamConfig{Limit: -1,
-			TTL: time.Duration(0), StaticTTL: false, Precache: false},
-		utils.CacheAttributeFilterRevIndexes: &CacheParamConfig{Limit: -1,
+		utils.CacheChargerFilterIndexes: &CacheParamCfg{Limit: -1,
 			TTL: time.Duration(0), StaticTTL: false, Precache: false},
 	}
 
@@ -553,20 +751,22 @@ func TestCgrCfgJSONDefaultsCacheCFG(t *testing.T) {
 }
 
 func TestCgrCfgJSONDefaultsFsAgentConfig(t *testing.T) {
-	eFsAgentCfg := &FsAgentConfig{
+	eFsAgentCfg := &FsAgentCfg{
 		Enabled: false,
 		SessionSConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"}},
+			{Address: "*internal"}},
 		SubscribePark:       true,
 		CreateCdr:           false,
 		ExtraFields:         nil,
 		EmptyBalanceContext: "",
 		EmptyBalanceAnnFile: "",
-		ChannelSyncInterval: 5 * time.Minute,
 		MaxWaitConnection:   2 * time.Second,
-		EventSocketConns: []*FsConnConfig{
-			&FsConnConfig{Address: "127.0.0.1:8021",
-				Password: "ClueCon", Reconnects: 5}},
+		EventSocketConns: []*FsConnCfg{{
+			Address:    "127.0.0.1:8021",
+			Password:   "ClueCon",
+			Reconnects: 5,
+			Alias:      "127.0.0.1:8021",
+		}},
 	}
 
 	if !reflect.DeepEqual(cgrCfg.fsAgentCfg, eFsAgentCfg) {
@@ -578,11 +778,12 @@ func TestCgrCfgJSONDefaultsKamAgentConfig(t *testing.T) {
 	eKamAgentCfg := &KamAgentCfg{
 		Enabled: false,
 		SessionSConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"}},
+			{Address: "*internal"}},
 		CreateCdr: false,
-		EvapiConns: []*KamConnConfig{
-			&KamConnConfig{
-				Address: "127.0.0.1:8448", Reconnects: 5}},
+		EvapiConns: []*KamConnCfg{{
+			Address:    "127.0.0.1:8448",
+			Reconnects: 5,
+		}},
 	}
 	if !reflect.DeepEqual(cgrCfg.kamAgentCfg, eKamAgentCfg) {
 		t.Errorf("received: %+v, expecting: %+v",
@@ -594,10 +795,10 @@ func TestCgrCfgJSONDefaultssteriskAgentCfg(t *testing.T) {
 	eAstAgentCfg := &AsteriskAgentCfg{
 		Enabled: false,
 		SessionSConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"}},
+			{Address: "*internal"}},
 		CreateCDR: false,
 		AsteriskConns: []*AsteriskConnCfg{
-			&AsteriskConnCfg{Address: "127.0.0.1:8088",
+			{Address: "127.0.0.1:8088",
 				User: "cgrates", Password: "CGRateS.org",
 				ConnectAttempts: 3, Reconnects: 5}},
 	}
@@ -632,7 +833,8 @@ func TestCgrCfgJSONDefaultsUserS(t *testing.T) {
 
 func TestCgrCfgJSONDefaultFiltersCfg(t *testing.T) {
 	eFiltersCfg := &FilterSCfg{
-		StatSConns: []*HaPoolConfig{},
+		StatSConns:     []*HaPoolConfig{},
+		IndexedSelects: true,
 	}
 	if !reflect.DeepEqual(cgrCfg.filterSCfg, eFiltersCfg) {
 		t.Errorf("received: %+v, expecting: %+v", cgrCfg.filterSCfg, eFiltersCfg)
@@ -644,9 +846,22 @@ func TestCgrCfgJSONDefaultSAttributeSCfg(t *testing.T) {
 		Enabled:             false,
 		StringIndexedFields: nil,
 		PrefixIndexedFields: &[]string{},
+		ProcessRuns:         1,
 	}
 	if !reflect.DeepEqual(eAliasSCfg, cgrCfg.attributeSCfg) {
 		t.Errorf("received: %+v, expecting: %+v", eAliasSCfg, cgrCfg.attributeSCfg)
+	}
+}
+
+func TestCgrCfgJSONDefaultSChargerSCfg(t *testing.T) {
+	eChargerSCfg := &ChargerSCfg{
+		Enabled:             false,
+		AttributeSConns:     []*HaPoolConfig{},
+		StringIndexedFields: nil,
+		PrefixIndexedFields: &[]string{},
+	}
+	if !reflect.DeepEqual(eChargerSCfg, cgrCfg.chargerSCfg) {
+		t.Errorf("received: %+v, expecting: %+v", eChargerSCfg, cgrCfg.chargerSCfg)
 	}
 }
 
@@ -694,9 +909,9 @@ func TestCgrCfgJSONDefaultSupplierSCfg(t *testing.T) {
 		Enabled:             false,
 		StringIndexedFields: nil,
 		PrefixIndexedFields: &[]string{},
-
+		AttributeSConns:     []*HaPoolConfig{},
 		RALsConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"},
+			{Address: "*internal"},
 		},
 		ResourceSConns: []*HaPoolConfig{},
 		StatSConns:     []*HaPoolConfig{},
@@ -708,15 +923,11 @@ func TestCgrCfgJSONDefaultSupplierSCfg(t *testing.T) {
 
 func TestCgrCfgJSONDefaultsDiameterAgentCfg(t *testing.T) {
 	testDA := &DiameterAgentCfg{
-		Enabled:         false,
-		Listen:          "127.0.0.1:3868",
-		DictionariesDir: "/usr/share/cgrates/diameter/dict/",
+		Enabled:          false,
+		Listen:           "127.0.0.1:3868",
+		DictionariesPath: "/usr/share/cgrates/diameter/dict/",
 		SessionSConns: []*HaPoolConfig{
-			&HaPoolConfig{Address: "*internal"}},
-		PubSubConns:       []*HaPoolConfig{},
-		CreateCDR:         true,
-		DebitInterval:     5 * time.Minute,
-		Timezone:          "",
+			{Address: "*internal"}},
 		OriginHost:        "CGR-DA",
 		OriginRealm:       "cgrates.org",
 		VendorId:          0,
@@ -730,23 +941,11 @@ func TestCgrCfgJSONDefaultsDiameterAgentCfg(t *testing.T) {
 	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.Listen, testDA.Listen) {
 		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.Listen, testDA.Listen)
 	}
-	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.DictionariesDir, testDA.DictionariesDir) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.DictionariesDir, testDA.DictionariesDir)
+	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.DictionariesPath, testDA.DictionariesPath) {
+		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.DictionariesPath, testDA.DictionariesPath)
 	}
 	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.SessionSConns, testDA.SessionSConns) {
 		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.SessionSConns, testDA.SessionSConns)
-	}
-	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.PubSubConns, testDA.PubSubConns) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.PubSubConns, testDA.PubSubConns)
-	}
-	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.CreateCDR, testDA.CreateCDR) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.CreateCDR, testDA.CreateCDR)
-	}
-	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.DebitInterval, testDA.DebitInterval) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.diameterAgentCfg.DebitInterval, testDA.DebitInterval)
-	}
-	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.Timezone, testDA.Timezone) {
-		t.Errorf("received: %+v, expecting: %+v", cgrCfg.diameterAgentCfg.Timezone, testDA.Timezone)
 	}
 	if !reflect.DeepEqual(cgrCfg.diameterAgentCfg.OriginHost, testDA.OriginHost) {
 		t.Errorf("received: %+v, expecting: %+v", cgrCfg.diameterAgentCfg.OriginHost, testDA.OriginHost)
@@ -766,17 +965,17 @@ func TestCgrCfgJSONDefaultsDiameterAgentCfg(t *testing.T) {
 }
 
 func TestCgrCfgJSONDefaultsMailer(t *testing.T) {
-	if cgrCfg.MailerServer != "localhost" {
-		t.Error(cgrCfg.MailerServer)
+	if cgrCfg.MailerCfg().MailerServer != "localhost" {
+		t.Error(cgrCfg.MailerCfg().MailerServer)
 	}
-	if cgrCfg.MailerAuthUser != "cgrates" {
-		t.Error(cgrCfg.MailerAuthUser)
+	if cgrCfg.MailerCfg().MailerAuthUser != "cgrates" {
+		t.Error(cgrCfg.MailerCfg().MailerAuthUser)
 	}
-	if cgrCfg.MailerAuthPass != "CGRateS.org" {
-		t.Error(cgrCfg.MailerAuthPass)
+	if cgrCfg.MailerCfg().MailerAuthPass != "CGRateS.org" {
+		t.Error(cgrCfg.MailerCfg().MailerAuthPass)
 	}
-	if cgrCfg.MailerFromAddr != "cgr-mailer@localhost.localdomain" {
-		t.Error(cgrCfg.MailerFromAddr)
+	if cgrCfg.MailerCfg().MailerFromAddr != "cgr-mailer@localhost.localdomain" {
+		t.Error(cgrCfg.MailerCfg().MailerFromAddr)
 	}
 }
 
@@ -819,17 +1018,23 @@ func TestCgrCfgJSONDefaultsSureTax(t *testing.T) {
 }
 
 func TestCgrCfgJSONDefaultsHTTP(t *testing.T) {
-	if cgrCfg.HTTPJsonRPCURL != "/jsonrpc" {
-		t.Error(cgrCfg.HTTPJsonRPCURL)
+	if cgrCfg.HTTPCfg().HTTPJsonRPCURL != "/jsonrpc" {
+		t.Errorf("expecting: /jsonrpc , received: %+v", cgrCfg.HTTPCfg().HTTPJsonRPCURL)
 	}
-	if cgrCfg.HTTPWSURL != "/ws" {
-		t.Error(cgrCfg.HTTPWSURL)
+	if cgrCfg.HTTPCfg().HTTPWSURL != "/ws" {
+		t.Errorf("expecting: /ws , received: %+v", cgrCfg.HTTPCfg().HTTPWSURL)
 	}
-	if cgrCfg.HTTPUseBasicAuth != false {
-		t.Error(cgrCfg.HTTPUseBasicAuth)
+	if cgrCfg.HTTPCfg().HTTPFreeswitchCDRsURL != "/freeswitch_json" {
+		t.Errorf("expecting: /freeswitch_json , received: %+v", cgrCfg.HTTPCfg().HTTPFreeswitchCDRsURL)
 	}
-	if !reflect.DeepEqual(cgrCfg.HTTPAuthUsers, map[string]string{}) {
-		t.Error(cgrCfg.HTTPAuthUsers)
+	if cgrCfg.HTTPCfg().HTTPCDRsURL != "/cdr_http" {
+		t.Errorf("expecting: /cdr_http , received: %+v", cgrCfg.HTTPCfg().HTTPCDRsURL)
+	}
+	if cgrCfg.HTTPCfg().HTTPUseBasicAuth != false {
+		t.Errorf("expecting: false , received: %+v", cgrCfg.HTTPCfg().HTTPUseBasicAuth)
+	}
+	if !reflect.DeepEqual(cgrCfg.HTTPCfg().HTTPAuthUsers, map[string]string{}) {
+		t.Errorf("expecting: %+v , received: %+v", map[string]string{}, cgrCfg.HTTPCfg().HTTPAuthUsers)
 	}
 }
 
@@ -841,51 +1046,18 @@ func TestRadiusAgentCfg(t *testing.T) {
 		ListenAcct:         "127.0.0.1:1813",
 		ClientSecrets:      map[string]string{utils.META_DEFAULT: "CGRateS.org"},
 		ClientDictionaries: map[string]string{utils.META_DEFAULT: "/usr/share/cgrates/radius/dict/"},
-		SessionSConns:      []*HaPoolConfig{&HaPoolConfig{Address: utils.MetaInternal}},
-		CreateCDR:          true,
-		CDRRequiresSession: false,
-		Timezone:           "",
+		SessionSConns:      []*HaPoolConfig{{Address: utils.MetaInternal}},
 		RequestProcessors:  nil,
 	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.Enabled, testRA.Enabled) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.Enabled, testRA.Enabled)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.ListenNet, testRA.ListenNet) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.ListenNet, testRA.ListenNet)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.ListenAuth, testRA.ListenAuth) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.ListenAuth, testRA.ListenAuth)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.ListenAcct, testRA.ListenAcct) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.ListenAcct, testRA.ListenAcct)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.ClientSecrets, testRA.ClientSecrets) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.ClientSecrets, testRA.ClientSecrets)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.ClientDictionaries, testRA.ClientDictionaries) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.ClientDictionaries, testRA.ClientDictionaries)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.SessionSConns, testRA.SessionSConns) {
-		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg.SessionSConns, testRA.SessionSConns)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.CreateCDR, testRA.CreateCDR) {
-		t.Errorf("received: %+v, expecting: %+v", cgrCfg.radiusAgentCfg.CreateCDR, testRA.CreateCDR)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.CDRRequiresSession, testRA.CDRRequiresSession) {
-		t.Errorf("received: %+v, expecting: %+v", cgrCfg.radiusAgentCfg.CDRRequiresSession, testRA.CDRRequiresSession)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.Timezone, testRA.Timezone) {
-		t.Errorf("received: %+v, expecting: %+v", cgrCfg.radiusAgentCfg.Timezone, testRA.Timezone)
-	}
-	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg.RequestProcessors, testRA.RequestProcessors) {
-		t.Errorf("received: %+v, expecting: %+v", cgrCfg.radiusAgentCfg.RequestProcessors, testRA.RequestProcessors)
+	if !reflect.DeepEqual(cgrCfg.radiusAgentCfg, testRA) {
+		t.Errorf("expecting: %+v, received: %+v", cgrCfg.radiusAgentCfg, testRA)
 	}
 }
 
 func TestDbDefaults(t *testing.T) {
 	dbdf := NewDbDefaults()
 	flagInput := utils.MetaDynamic
-	dbs := []string{utils.MONGO, utils.REDIS, utils.MYSQL}
+	dbs := []string{utils.MONGO, utils.REDIS, utils.MYSQL, utils.INTERNAL}
 	for _, dbtype := range dbs {
 		host := dbdf.DBHost(dbtype, flagInput)
 		if host != utils.LOCALHOST {
@@ -907,5 +1079,605 @@ func TestDbDefaults(t *testing.T) {
 		if pass != dbdf[dbtype]["DbPass"] {
 			t.Errorf("received: %+v, expecting: %+v", pass, dbdf[dbtype]["DbPass"])
 		}
+	}
+}
+
+func TestCgrLoaderCfgITDefaults(t *testing.T) {
+	eCfg := []*LoaderSCfg{
+		{
+			Id:           utils.META_DEFAULT,
+			Enabled:      false,
+			Tenant:       NewRSRParsersMustCompile("cgrates.org", true),
+			DryRun:       false,
+			RunDelay:     0,
+			LockFileName: ".cgr.lck",
+			CacheSConns: []*HaPoolConfig{
+				{
+					Address: utils.MetaInternal,
+				},
+			},
+			FieldSeparator: ",",
+			TpInDir:        "/var/spool/cgrates/loader/in",
+			TpOutDir:       "/var/spool/cgrates/loader/out",
+			Data: []*LoaderDataType{
+				{
+					Type:     utils.MetaAttributes,
+					Filename: utils.AttributesCsv,
+					Fields: []*FCTemplate{
+						{Tag: "TenantID",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ProfileID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "Contexts",
+							FieldId: "Contexts",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "FilterIDs",
+							FieldId: "FilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "FieldName",
+							FieldId: "FieldName",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+						{Tag: "Initial",
+							FieldId: "Initial",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~6", true)},
+						{Tag: "Substitute",
+							FieldId: "Substitute",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~7", true)},
+						{Tag: "Append",
+							FieldId: "Append",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~8", true)},
+						{Tag: "Weight",
+							FieldId: "Weight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~9", true)},
+					},
+				},
+				{
+					Type:     utils.MetaFilters,
+					Filename: utils.FiltersCsv,
+					Fields: []*FCTemplate{
+						{Tag: "Tenant",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "FilterType",
+							FieldId: "FilterType",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "FilterFieldName",
+							FieldId: "FilterFieldName",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "FilterFieldValues",
+							FieldId: "FilterFieldValues",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+					},
+				},
+				{
+					Type:     utils.MetaResources,
+					Filename: utils.ResourcesCsv,
+					Fields: []*FCTemplate{
+						{Tag: "Tenant",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "FilterIDs",
+							FieldId: "FilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "TTL",
+							FieldId: "UsageTTL",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "Limit",
+							FieldId: "Limit",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+						{Tag: "AllocationMessage",
+							FieldId: "AllocationMessage",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~6", true)},
+						{Tag: "Blocker",
+							FieldId: "Blocker",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~7", true)},
+						{Tag: "Stored",
+							FieldId: "Stored",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~8", true)},
+						{Tag: "Weight",
+							FieldId: "Weight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~9", true)},
+						{Tag: "ThresholdIDs",
+							FieldId: "ThresholdIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~10", true)},
+					},
+				},
+				{
+					Type:     utils.MetaStats,
+					Filename: utils.StatsCsv,
+					Fields: []*FCTemplate{
+						{Tag: "Tenant",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "FilterIDs",
+							FieldId: "FilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "QueueLength",
+							FieldId: "QueueLength",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "TTL",
+							FieldId: "TTL",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+						{Tag: "Metrics",
+							FieldId: "Metrics",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~6", true)},
+						{Tag: "MetricParams",
+							FieldId: "Parameters",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~7", true)},
+						{Tag: "Blocker",
+							FieldId: "Blocker",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~8", true)},
+						{Tag: "Stored",
+							FieldId: "Stored",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~9", true)},
+						{Tag: "Weight",
+							FieldId: "Weight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~10", true)},
+						{Tag: "MinItems",
+							FieldId: "MinItems",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~11", true)},
+						{Tag: "ThresholdIDs",
+							FieldId: "ThresholdIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~12", true)},
+					},
+				},
+				{
+					Type:     utils.MetaThresholds,
+					Filename: utils.ThresholdsCsv,
+					Fields: []*FCTemplate{
+						{Tag: "Tenant",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "FilterIDs",
+							FieldId: "FilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "MaxHits",
+							FieldId: "MaxHits",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "MinHits",
+							FieldId: "MinHits",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+						{Tag: "MinSleep",
+							FieldId: "MinSleep",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~6", true)},
+						{Tag: "Blocker",
+							FieldId: "Blocker",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~7", true)},
+						{Tag: "Weight",
+							FieldId: "Weight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~8", true)},
+						{Tag: "ActionIDs",
+							FieldId: "ActionIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~9", true)},
+						{Tag: "Async",
+							FieldId: "Async",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~10", true)},
+					},
+				},
+				{
+					Type:     utils.MetaSuppliers,
+					Filename: utils.SuppliersCsv,
+					Fields: []*FCTemplate{
+						{Tag: "Tenant",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "FilterIDs",
+							FieldId: "FilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "Sorting",
+							FieldId: "Sorting",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "SortingParamameters",
+							FieldId: "SortingParamameters",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+						{Tag: "SupplierID",
+							FieldId: "SupplierID",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~6", true)},
+						{Tag: "SupplierFilterIDs",
+							FieldId: "SupplierFilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~7", true)},
+						{Tag: "SupplierAccountIDs",
+							FieldId: "SupplierAccountIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~8", true)},
+						{Tag: "SupplierRatingPlanIDs",
+							FieldId: "SupplierRatingPlanIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~9", true)},
+						{Tag: "SupplierResourceIDs",
+							FieldId: "SupplierResourceIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~10", true)},
+						{Tag: "SupplierStatIDs",
+							FieldId: "SupplierStatIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~11", true)},
+						{Tag: "SupplierWeight",
+							FieldId: "SupplierWeight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~12", true)},
+						{Tag: "SupplierBlocker",
+							FieldId: "SupplierBlocker",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~13", true)},
+						{Tag: "SupplierParameters",
+							FieldId: "SupplierParameters",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~14", true)},
+						{Tag: "Weight",
+							FieldId: "Weight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~15", true)},
+					},
+				},
+				{
+					Type:     utils.MetaChargers,
+					Filename: utils.ChargersCsv,
+					Fields: []*FCTemplate{
+						{Tag: "Tenant",
+							FieldId:   "Tenant",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~0", true),
+							Mandatory: true},
+						{Tag: "ID",
+							FieldId:   "ID",
+							Type:      utils.META_COMPOSED,
+							Value:     NewRSRParsersMustCompile("~1", true),
+							Mandatory: true},
+						{Tag: "FilterIDs",
+							FieldId: "FilterIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~2", true)},
+						{Tag: "ActivationInterval",
+							FieldId: "ActivationInterval",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~3", true)},
+						{Tag: "RunID",
+							FieldId: "RunID",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~4", true)},
+						{Tag: "AttributeIDs",
+							FieldId: "AttributeIDs",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~5", true)},
+						{Tag: "Weight",
+							FieldId: "Weight",
+							Type:    utils.META_COMPOSED,
+							Value:   NewRSRParsersMustCompile("~6", true)},
+					},
+				},
+			},
+		},
+	}
+	if !reflect.DeepEqual(eCfg, cgrCfg.loaderCfg) {
+		t.Errorf("received: %+v, \n expecting: %+v",
+			utils.ToJSON(eCfg), utils.ToJSON(cgrCfg.loaderCfg))
+	}
+}
+
+func TestCgrCfgJSONDefaultDispatcherSCfg(t *testing.T) {
+	eDspSCfg := &DispatcherSCfg{
+		Enabled:             false,
+		RALsConns:           []*HaPoolConfig{},
+		ResSConns:           []*HaPoolConfig{},
+		ThreshSConns:        []*HaPoolConfig{},
+		StatSConns:          []*HaPoolConfig{},
+		SupplSConns:         []*HaPoolConfig{},
+		AttrSConns:          []*HaPoolConfig{},
+		SessionSConns:       []*HaPoolConfig{},
+		ChargerSConns:       []*HaPoolConfig{},
+		DispatchingStrategy: utils.MetaFirst,
+	}
+	if !reflect.DeepEqual(cgrCfg.dispatcherSCfg, eDspSCfg) {
+		t.Errorf("received: %+v, expecting: %+v", cgrCfg.dispatcherSCfg, eDspSCfg)
+	}
+}
+
+func TestCgrLoaderCfgDefault(t *testing.T) {
+	eLdrCfg := &LoaderCgrCfg{
+		TpID:           "",
+		DataPath:       "",
+		DisableReverse: false,
+		CachesConns: []*HaPoolConfig{
+			{
+				Address:   "127.0.0.1:2012",
+				Transport: utils.MetaJSONrpc,
+			},
+		},
+		SchedulerConns: []*HaPoolConfig{
+			{
+				Address: "127.0.0.1:2012",
+			},
+		},
+	}
+	if !reflect.DeepEqual(cgrCfg.LoaderCgrCfg(), eLdrCfg) {
+		t.Errorf("received: %+v, expecting: %+v", utils.ToJSON(cgrCfg.LoaderCgrCfg()), utils.ToJSON(eLdrCfg))
+	}
+}
+
+func TestCgrMigratorCfgDefault(t *testing.T) {
+	eMgrCfg := &MigratorCgrCfg{
+		OutDataDBType:     "redis",
+		OutDataDBHost:     "127.0.0.1",
+		OutDataDBPort:     "6379",
+		OutDataDBName:     "10",
+		OutDataDBUser:     "cgrates",
+		OutDataDBPassword: "",
+		OutDataDBEncoding: "msgpack",
+		OutStorDBType:     "mysql",
+		OutStorDBHost:     "127.0.0.1",
+		OutStorDBPort:     "3306",
+		OutStorDBName:     "cgrates",
+		OutStorDBUser:     "cgrates",
+		OutStorDBPassword: "",
+	}
+	if !reflect.DeepEqual(cgrCfg.MigratorCgrCfg(), eMgrCfg) {
+		t.Errorf("received: %+v, expecting: %+v", utils.ToJSON(cgrCfg.MigratorCgrCfg()), utils.ToJSON(eMgrCfg))
+	}
+}
+
+func TestCDRCWithDefault(t *testing.T) {
+	eCgrCfg, _ := NewDefaultCGRConfig()
+	eCgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"] = []*CdrcCfg{
+		{
+			ID:                       utils.META_DEFAULT,
+			Enabled:                  false,
+			DryRun:                   false,
+			CdrsConns:                []*HaPoolConfig{{Address: utils.MetaInternal}},
+			CdrFormat:                "csv",
+			FieldSeparator:           rune(','),
+			DataUsageMultiplyFactor:  1024,
+			Timezone:                 "",
+			RunDelay:                 0,
+			MaxOpenFiles:             1024,
+			CdrInDir:                 "/var/spool/cgrates/cdrc/in",
+			CdrOutDir:                "/var/spool/cgrates/cdrc/out",
+			FailedCallsPrefix:        "missed_calls",
+			CDRPath:                  utils.HierarchyPath([]string{""}),
+			CdrSourceId:              "freeswitch_csv",
+			Filters:                  []string{},
+			Tenant:                   NewRSRParsersMustCompile("cgrates.org", true),
+			ContinueOnSuccess:        false,
+			PartialRecordCache:       time.Duration(10 * time.Second),
+			PartialCacheExpiryAction: "*dump_to_file",
+			HeaderFields:             make([]*FCTemplate, 0),
+			ContentFields: []*FCTemplate{
+				{Tag: "TOR", FieldId: "ToR", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~2", true), Mandatory: true},
+				{Tag: "OriginID", FieldId: "OriginID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~3", true), Mandatory: true},
+				{Tag: "RequestType", FieldId: "RequestType", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~4", true), Mandatory: true},
+				{Tag: "Tenant", FieldId: "Tenant", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~6", true), Mandatory: true},
+				{Tag: "Category", FieldId: "Category", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~7", true), Mandatory: true},
+				{Tag: "Account", FieldId: "Account", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~8", true), Mandatory: true},
+				{Tag: "Subject", FieldId: "Subject", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~9", true), Mandatory: true},
+				{Tag: "Destination", FieldId: "Destination", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~10", true), Mandatory: true},
+				{Tag: "SetupTime", FieldId: "SetupTime", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~11", true), Mandatory: true},
+				{Tag: "AnswerTime", FieldId: "AnswerTime", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~12", true), Mandatory: true},
+				{Tag: "Usage", FieldId: "Usage", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile("~13", true), Mandatory: true},
+			},
+			TrailerFields: make([]*FCTemplate, 0),
+			CacheDumpFields: []*FCTemplate{
+				{Tag: "CGRID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.CGRID, true)},
+				{Tag: "RunID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.RunID, true)},
+				{Tag: "TOR", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.ToR, true)},
+				{Tag: "OriginID", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.OriginID, true)},
+				{Tag: "RequestType", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.RequestType, true)},
+				{Tag: "Tenant", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Tenant, true)},
+				{Tag: "Category", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Category, true)},
+				{Tag: "Account", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Account, true)},
+				{Tag: "Subject", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Subject, true)},
+				{Tag: "Destination", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Destination, true)},
+				{Tag: "SetupTime", Type: utils.META_COMPOSED,
+					Value:  NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.SetupTime, true),
+					Layout: "2006-01-02T15:04:05Z07:00"},
+				{Tag: "AnswerTime", Type: utils.META_COMPOSED,
+					Value:  NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.AnswerTime, true),
+					Layout: "2006-01-02T15:04:05Z07:00"},
+				{Tag: "Usage", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.Usage, true)},
+				{Tag: "Cost", Type: utils.META_COMPOSED,
+					Value: NewRSRParsersMustCompile(utils.DynamicDataPrefix+utils.COST, true)},
+			},
+		},
+	}
+	if !reflect.DeepEqual(eCgrCfg.CdrcProfiles, cgrCfg.CdrcProfiles) {
+		t.Errorf("Expected: %+v,\n received: %+v",
+			utils.ToJSON(eCgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"][0]),
+			utils.ToJSON(cgrCfg.CdrcProfiles["/var/spool/cgrates/cdrc/in"][0]))
+	}
+}
+
+func TestCgrMigratorCfg2(t *testing.T) {
+	JSN_CFG := `
+{
+"migrator": {
+	"out_datadb_type": "redis",
+	"out_datadb_host": "0.0.0.0",
+	"out_datadb_port": "9999",
+	"out_datadb_name": "9999",
+	"out_datadb_user": "cgrates",
+	"out_datadb_password": "",
+	"out_datadb_encoding" : "msgpack",
+	"out_stordb_type": "mysql",
+	"out_stordb_host": "0.0.0.0",
+	"out_stordb_port": "9999",
+	"out_stordb_name": "cgrates",
+	"out_stordb_user": "cgrates",
+	"out_stordb_password": "",
+},
+}`
+
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if cgrCfg.MigratorCgrCfg().OutDataDBHost != "0.0.0.0" {
+		t.Errorf("Expected: 0.0.0.0 , received: %+v", cgrCfg.MigratorCgrCfg().OutDataDBHost)
+	} else if cgrCfg.MigratorCgrCfg().OutDataDBPort != "9999" {
+		t.Errorf("Expected: 9999, received: %+v", cgrCfg.MigratorCgrCfg().OutDataDBPassword)
+	}
+}
+
+func TestCfgTlsCfg(t *testing.T) {
+	JSN_CFG := `
+	{
+	"tls":{
+		"server_certificate" : "path/To/Server/Cert",			
+		"server_key":"path/To/Server/Key",					
+		"client_certificate" : "path/To/Client/Cert",			
+		"client_key":"path/To/Client/Key",					
+		"ca_certificate":"path/To/CA/Cert",							
+		"server_name":"TestServerName",
+		"server_policy":3,					
+		},
+	}`
+	eCgrCfg, _ := NewDefaultCGRConfig()
+	eCgrCfg.tlsCfg = &TlsCfg{
+		ServerCerificate: "path/To/Server/Cert",
+		ServerKey:        "path/To/Server/Key",
+		CaCertificate:    "path/To/CA/Cert",
+		ClientCerificate: "path/To/Client/Cert",
+		ClientKey:        "path/To/Client/Key",
+		ServerName:       "TestServerName",
+		ServerPolicy:     3,
+	}
+	if cgrCfg, err := NewCGRConfigFromJsonStringWithDefaults(JSN_CFG); err != nil {
+		t.Error(err)
+	} else if !reflect.DeepEqual(eCgrCfg.TlsCfg(), cgrCfg.TlsCfg()) {
+		t.Errorf("Expected: %s, received: %s",
+			utils.ToJSON(eCgrCfg.tlsCfg), utils.ToJSON(cgrCfg.tlsCfg))
+	}
+}
+
+func TestCgrCfgJSONDefaultAnalyzerSCfg(t *testing.T) {
+	aSCfg := &AnalyzerSCfg{
+		Enabled: false,
+	}
+	if !reflect.DeepEqual(cgrCfg.analyzerSCfg, aSCfg) {
+		t.Errorf("received: %+v, expecting: %+v", cgrCfg.analyzerSCfg, aSCfg)
 	}
 }

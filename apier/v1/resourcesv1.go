@@ -62,7 +62,7 @@ func (apierV1 *ApierV1) GetResourceProfile(arg utils.TenantID, reply *engine.Res
 	if missing := utils.MissingStructFields(&arg, []string{"Tenant", "ID"}); len(missing) != 0 { //Params missing
 		return utils.NewErrMandatoryIeMissing(missing...)
 	}
-	if rcfg, err := apierV1.DataManager.GetResourceProfile(arg.Tenant, arg.ID, false, utils.NonTransactional); err != nil {
+	if rcfg, err := apierV1.DataManager.GetResourceProfile(arg.Tenant, arg.ID, true, true, utils.NonTransactional); err != nil {
 		if err.Error() != utils.ErrNotFound.Error() {
 			err = utils.NewErrServerError(err)
 		}
@@ -70,6 +70,21 @@ func (apierV1 *ApierV1) GetResourceProfile(arg utils.TenantID, reply *engine.Res
 	} else {
 		*reply = *rcfg
 	}
+	return nil
+}
+
+// GetResourceProfileIDs returns list of resourceProfile IDs registered for a tenant
+func (apierV1 *ApierV1) GetResourceProfileIDs(tenant string, rsPrfIDs *[]string) error {
+	prfx := utils.ResourceProfilesPrefix + tenant + ":"
+	keys, err := apierV1.DataManager.DataDB().GetKeysForPrefix(prfx)
+	if err != nil {
+		return err
+	}
+	retIDs := make([]string, len(keys))
+	for i, key := range keys {
+		retIDs[i] = key[len(prfx):]
+	}
+	*rsPrfIDs = retIDs
 	return nil
 }
 
@@ -103,5 +118,10 @@ func (apierV1 *ApierV1) RemoveResourceProfile(arg utils.TenantID, reply *string)
 		return utils.APIErrorHandler(err)
 	}
 	*reply = utils.OK
+	return nil
+}
+
+func (rsv1 *ResourceSv1) Ping(ign string, reply *string) error {
+	*reply = utils.Pong
 	return nil
 }

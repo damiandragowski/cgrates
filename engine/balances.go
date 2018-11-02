@@ -695,6 +695,46 @@ func (b *Balance) AsBalanceSummary(typ string) *BalanceSummary {
 	return bd
 }
 
+func (b *Balance) Publish() {
+	if b.account == nil {
+		return
+	}
+	accountId := b.account.ID
+	acntTnt := utils.NewTenantID(accountId)
+	cgrEv := utils.CGREvent{
+		Tenant: acntTnt.Tenant,
+		ID:     utils.GenUUID(),
+		Event: map[string]interface{}{
+			utils.EventType:   utils.BalanceUpdate,
+			utils.EventSource: utils.AccountService,
+			utils.Account:     acntTnt.ID,
+			utils.BalanceID:   b.ID,
+			utils.Units:       b.Value}}
+	if !b.ExpirationDate.IsZero() {
+		cgrEv.Event[utils.ExpiryTime] = b.ExpirationDate.Format(time.RFC3339)
+	}
+	if statS != nil {
+		var reply []string
+		go func() {
+			if err := statS.Call(utils.StatSv1ProcessEvent, &StatsArgsProcessEvent{CGREvent: cgrEv}, &reply); err != nil &&
+				err.Error() != utils.ErrNotFound.Error() {
+				utils.Logger.Warning(
+					fmt.Sprintf("<AccountS> error: %s processing balance event %+v with StatS.",
+						err.Error(), cgrEv))
+			}
+		}()
+	}
+	if thresholdS != nil {
+		var tIDs []string
+		if err := thresholdS.Call(utils.ThresholdSv1ProcessEvent, &ArgsProcessEvent{CGREvent: cgrEv}, &tIDs); err != nil &&
+			err.Error() != utils.ErrNotFound.Error() {
+			utils.Logger.Warning(
+				fmt.Sprintf("<AccountS> error: %s processing balance event %+v with ThresholdS.",
+					err.Error(), cgrEv))
+		}
+	}
+}
+
 /*
 Structure to store minute buckets according to weight, precision or price.
 */
@@ -796,11 +836,12 @@ func (bc Balances) SaveDirtyBalances(acc *Account) {
 				thEv.Event[utils.ExpiryTime] = b.ExpirationDate.Format(time.RFC3339)
 			}
 			if thresholdS != nil {
-				var hits int
-				if err := thresholdS.Call(utils.ThresholdSv1ProcessEvent, thEv, &hits); err != nil &&
+				var tIDs []string
+				if err := thresholdS.Call(utils.ThresholdSv1ProcessEvent, thEv, &tIDs); err != nil &&
 					err.Error() != utils.ErrNotFound.Error() {
 					utils.Logger.Warning(
-						fmt.Sprintf("<AccountS> error: %s processing balance event %+v with ThresholdS.", err.Error(), thEv))
+						fmt.Sprintf("<AccountS> error: %s processing balance event %+v with ThresholdS.",
+							err.Error(), thEv))
 				}
 			}
 			//utils.LogStack()
@@ -843,8 +884,8 @@ func (bc Balances) SaveDirtyBalances(acc *Account) {
 						utils.Account:       acntTnt.ID,
 						utils.AllowNegative: acnt.AllowNegative,
 						utils.Disabled:      acnt.Disabled}}}
-			var hits int
-			if err := thresholdS.Call(utils.ThresholdSv1ProcessEvent, thEv, &hits); err != nil &&
+			var tIDs []string
+			if err := thresholdS.Call(utils.ThresholdSv1ProcessEvent, thEv, &tIDs); err != nil &&
 				err.Error() != utils.ErrNotFound.Error() {
 				utils.Logger.Warning(
 					fmt.Sprintf("<AccountS> error: %s processing account event %+v with ThresholdS.", err.Error(), thEv))

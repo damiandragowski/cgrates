@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cenk/rpc2"
+	"github.com/cenkalti/rpc2"
 	"github.com/cgrates/cgrates/config"
 	"github.com/cgrates/cgrates/engine"
 	"github.com/cgrates/cgrates/sessions"
@@ -51,6 +51,7 @@ func handleDisconnectSession2(clnt *rpc2.Client,
 }
 
 func TestSessionSv1ItInitCfg(t *testing.T) {
+	var err error
 	sSv1CfgPath2 = path.Join(*dataDir, "conf", "samples", "sessions")
 	// Init config first
 	sSv1Cfg2, err = config.NewCGRConfigFromFolder(sSv1CfgPath2)
@@ -93,7 +94,7 @@ func TestSessionSv1ItRpcConn(t *testing.T) {
 		clntHandlers); err != nil {
 		t.Fatal(err)
 	}
-	if sSApierRpc2, err = jsonrpc.Dial("tcp", sSv1Cfg2.RPCJSONListen); err != nil {
+	if sSApierRpc2, err = jsonrpc.Dial("tcp", sSv1Cfg2.ListenCfg().RPCJSONListen); err != nil {
 		t.Fatal(err)
 	}
 	dummyClnt.Close() // close so we don't get EOF error when disconnecting server
@@ -113,12 +114,13 @@ func TestSessionSv1ItTPFromFolder(t *testing.T) {
 
 func TestSessionSv1ItGetThreshold(t *testing.T) {
 	tPrfl := &engine.ThresholdProfile{
-		Tenant: "cgrates.org",
-		ID:     "THD_ACNT_1001",
+		Tenant:    "cgrates.org",
+		ID:        "THD_ACNT_1001",
+		FilterIDs: []string{"FLTR_ACCOUNT_1001"},
 		ActivationInterval: &utils.ActivationInterval{
 			ActivationTime: time.Date(2014, 7, 29, 15, 0, 0, 0, time.UTC),
 		},
-		Recurrent: true,
+		MaxHits:   -1,
 		MinSleep:  time.Duration(0),
 		Blocker:   false,
 		Weight:    10.0,
@@ -139,7 +141,7 @@ func TestSessionSv1ItGetThreshold(t *testing.T) {
 		ID: "cgrates.org:1001",
 		BalanceMap: map[string]engine.Balances{
 			utils.MONETARY: []*engine.Balance{
-				&engine.Balance{
+				{
 					//Uuid:  "c9a2c620-5256-483a-a92d-c51e94bb7667",
 					Value: 10,
 					Directions: utils.StringMap{
@@ -171,7 +173,7 @@ func TestSessionSv1ItGetThreshold(t *testing.T) {
 func TestSessionSv1ItAuth(t *testing.T) {
 	args := &sessions.V1AuthorizeArgs{
 		AuthorizeResources: true,
-		ProcessThresholds:  utils.BoolPointer(true),
+		ProcessThresholds:  true,
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItAuth",
@@ -193,15 +195,15 @@ func TestSessionSv1ItAuth(t *testing.T) {
 	if *rply.ResourceAllocation == "" {
 		t.Errorf("Unexpected ResourceAllocation: %s", *rply.ResourceAllocation)
 	}
-	if *rply.ThresholdHits != 1 {
-		t.Errorf("Unexpected ThresholdHits: %v", *rply.ThresholdHits)
+	if !reflect.DeepEqual(*rply.ThresholdIDs, []string{"THD_ACNT_1001"}) {
+		t.Errorf("Unexpected ThresholdIDs: %v", *rply.ThresholdIDs)
 	}
 	// Hit threshold and execute action (topup with 10 units)
 	expectedAccount := &engine.Account{
 		ID: "cgrates.org:1001",
 		BalanceMap: map[string]engine.Balances{
 			utils.MONETARY: []*engine.Balance{
-				&engine.Balance{
+				{
 					//Uuid:  "c9a2c620-5256-483a-a92d-c51e94bb7667",
 					Value: 20,
 					Directions: utils.StringMap{
@@ -235,12 +237,14 @@ func TestSessionSv1ItInitiateSession(t *testing.T) {
 	args := &sessions.V1InitSessionArgs{
 		InitSession:       true,
 		AllocateResources: true,
-		GetAttributes:     true,
-		ProcessThresholds: utils.BoolPointer(true),
+		ProcessThresholds: true,
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItInitiateSession",
 			Event: map[string]interface{}{
+				utils.Tenant:      "cgrates.org",
+				utils.Category:    "call",
+				utils.ToR:         utils.VOICE,
 				utils.OriginID:    "TestSSv1It1",
 				utils.RequestType: utils.META_PREPAID,
 				utils.Account:     "1001",
@@ -258,16 +262,16 @@ func TestSessionSv1ItInitiateSession(t *testing.T) {
 		args, &rply); err != nil {
 		t.Error(err)
 	}
-	if *rply.ThresholdHits != 1 {
-		t.Errorf("Unexpected ThresholdHits: %v", *rply.ThresholdHits)
+	if !reflect.DeepEqual(*rply.ThresholdIDs, []string{"THD_ACNT_1001"}) {
+		t.Errorf("Unexpected ThresholdIDs: %v", *rply.ThresholdIDs)
 	}
 	expectedAccount := &engine.Account{
 		ID: "cgrates.org:1001",
 		BalanceMap: map[string]engine.Balances{
 			utils.MONETARY: []*engine.Balance{
-				&engine.Balance{
+				{
 					//Uuid:  "c9a2c620-5256-483a-a92d-c51e94bb7667",
-					Value: 29.949000,
+					Value: 29.898000,
 					Directions: utils.StringMap{
 						"*out": true},
 					Weight: 10,
@@ -298,7 +302,7 @@ func TestSessionSv1ItTerminateSession(t *testing.T) {
 	args := &sessions.V1TerminateSessionArgs{
 		TerminateSession:  true,
 		ReleaseResources:  true,
-		ProcessThresholds: utils.BoolPointer(true),
+		ProcessThresholds: true,
 		CGREvent: utils.CGREvent{
 			Tenant: "cgrates.org",
 			ID:     "TestSSv1ItTerminateSession",
@@ -325,9 +329,9 @@ func TestSessionSv1ItTerminateSession(t *testing.T) {
 		ID: "cgrates.org:1001",
 		BalanceMap: map[string]engine.Balances{
 			utils.MONETARY: []*engine.Balance{
-				&engine.Balance{
+				{
 					//Uuid:  "c9a2c620-5256-483a-a92d-c51e94bb7667",
-					Value: 39.898000,
+					Value: 39.796000,
 					Directions: utils.StringMap{
 						"*out": true},
 					Weight: 10,
